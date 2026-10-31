@@ -24,6 +24,8 @@ test('default deny: a caller with no grant at all is told the secret does not ex
   assert.equal(code(read(e, ADMIN)), 'access_denied');
   const denied = e.s.audit.filter((a) => a.action === 'store.read' && a.outcome === 'denied');
   assert.deepEqual(denied.map((a) => [a.actor, a.code]), [[SUP, 'no_grant'], [AUD, 'no_grant'], [U2, 'no_grant'], [ADMIN, 'read_not_granted']]);
+  run(e, 'storeRotate', U1, { ref: AWS });
+  assert.deepEqual(e.s.audit.at(-1), { ...e.s.audit.at(-1), actor: U1, action: 'store.rotate', outcome: 'denied', code: 'write_not_granted' }, 'a denied rotate is audited as a rotate, not as a generic write');
   assert.deepEqual(snap(e, SUP).stores.items, [], 'metadata is hidden too'); assert.equal(snap(e, SUP).stores.providers[0].nodes.every((n) => n.secrets === 0), true);
 });
 

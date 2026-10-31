@@ -389,11 +389,11 @@ export class Engine {
   provider(id) { if (typeof id !== 'string' || !Object.hasOwn(this.#providers, id)) throw refuse('unknown_provider', 'there is no such secret store provider', 400); return this.#providers[id]; }
   invOf(ref) { return typeof ref === 'string' && ref.length <= 160 ? this.s.inventory.find((r) => r.ref === ref) || null : null; }
   // A caller that has no grant at all on a path is told "not found" (existence is not revealed); one with some grant but not this action is told no.
-  gate(actor, row, action) {
+  gate(actor, row, action, op = action) {
     const any = ACTIONS.some((x) => allowed(this.s.policies, actor.id, x, row.provider, row.path));
-    if (!any) { this.audit(actor, 'store', `store.${action}`, row ? row.ref : '-', 'denied', 'no_grant'); throw refuse('not_found', 'there is no such secret in the inventory', 404); }
+    if (!any) { this.audit(actor, 'store', `store.${op}`, row ? row.ref : '-', 'denied', 'no_grant'); throw refuse('not_found', 'there is no such secret in the inventory', 404); }
     if (!allowed(this.s.policies, actor.id, action === 'read' ? 'read' : 'write', row.provider, row.path)) {
-      this.audit(actor, 'store', `store.${action}`, row.ref, 'denied', `${action === 'read' ? 'read' : 'write'}_not_granted`);
+      this.audit(actor, 'store', `store.${op}`, row.ref, 'denied', `${action === 'read' ? 'read' : 'write'}_not_granted`);
       this.hop('policy engine: denied', { method: 'CHECK', url: `policy://${row.provider}`, body: { actor: actor.id, action: action === 'read' ? 'read' : 'write' } }, { status: 403, body: { allowed: false, reason: `${action === 'read' ? 'read' : 'write'} is a separate grant` } });
       throw refuse('access_denied', `you hold a grant on this secret, but not ${action === 'read' ? 'read' : 'write'}: read and write are separate grants`, 403);
     }
@@ -468,7 +468,7 @@ export class Engine {
 
   storeUpdate(actorIn, { ref, fields, tags } = {}) {
     const a = this.begin(actorIn);
-    const row = this.rowFor(a, ref); this.gate(a, row, 'write');
+    const row = this.rowFor(a, ref); this.gate(a, row, 'write', 'update');
     if (row.state !== 'active') throw refuse('soft_deleted', 'soft-deleted at the provider: recover it first', 409);
     if (fields === undefined && tags === undefined) throw refuse('nothing_to_update', 'give fields, tags, or both (an omitted field keeps its stored value)', 400);
     const given = this.fieldMap(fields); const newTags = tags === undefined ? undefined : this.tagsOf(tags);
@@ -482,7 +482,7 @@ export class Engine {
   }
   storeRotate(actorIn, { ref } = {}) {
     const a = this.begin(actorIn);
-    const row = this.rowFor(a, ref); this.gate(a, row, 'write');
+    const row = this.rowFor(a, ref); this.gate(a, row, 'write', 'rotate');
     if (row.state !== 'active') throw refuse('soft_deleted', 'soft-deleted at the provider: recover it first', 409);
     const conn = this.connect(row.provider, 'rotate', row.path);
     conn.p.rotate(row.pid, this.now()); this.refreshRow(row);
@@ -492,7 +492,7 @@ export class Engine {
   }
   storeDelete(actorIn, { ref } = {}) {
     const a = this.begin(actorIn);
-    const row = this.rowFor(a, ref); this.gate(a, row, 'write');
+    const row = this.rowFor(a, ref); this.gate(a, row, 'write', 'delete');
     if (row.state === 'soft-deleted') throw refuse('already_deleted', 'already soft-deleted', 409);
     const conn = this.connect(row.provider, 'delete', row.path);
     const how = conn.p.remove(row.pid, this.now());
@@ -503,7 +503,7 @@ export class Engine {
   }
   storeRecover(actorIn, { ref } = {}) {
     const a = this.begin(actorIn);
-    const row = this.rowFor(a, ref); this.gate(a, row, 'write');
+    const row = this.rowFor(a, ref); this.gate(a, row, 'write', 'recover');
     if (!PROVIDERS[row.provider].softDelete) throw refuse('unsupported_operation', `${PROVIDERS[row.provider].name} has no soft-delete in this lab (the deck lists soft-delete and purge for Azure)`, 409);
     if (row.state !== 'soft-deleted') throw refuse('not_soft_deleted', 'not soft-deleted', 409);
     const conn = this.connect(row.provider, 'recover', row.path);
@@ -514,7 +514,7 @@ export class Engine {
   }
   storePurge(actorIn, { ref } = {}) {
     const a = this.begin(actorIn);
-    const row = this.rowFor(a, ref); this.gate(a, row, 'write');
+    const row = this.rowFor(a, ref); this.gate(a, row, 'write', 'purge');
     if (!PROVIDERS[row.provider].purge) throw refuse('unsupported_operation', `${PROVIDERS[row.provider].name} has no purge in this lab (the deck lists soft-delete and purge for Azure)`, 409);
     if (row.state !== 'soft-deleted') throw refuse('not_soft_deleted', 'only a soft-deleted secret can be purged', 409);
     const conn = this.connect(row.provider, 'purge', row.path);
