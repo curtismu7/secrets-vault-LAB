@@ -93,6 +93,13 @@ test('the hop panes show the masked injected header and a traceparent on every h
   assert.ok(!text.includes('hop-pane-secret')); assert.ok(text.includes('Bearer •'));
 });
 
+test('a staged entry cannot be used at the gateway, and the backend is never called for it', () => {
+  const e = newEngine(); const id = mk(e, U1); run(e, 'vaultDelete', U1, { id });
+  assert.equal(code(call(e, U1, { targetId: C.castT1, entryId: id })), 'entry_staged_for_delete');
+  assert.equal(code(call(e, U1, { targetId: C.castT1 })), 'no_credential_for_target', 'with no entry named, a staged one is not picked either');
+  assert.equal(e.backend.log.length, 0);
+});
+
 test('another role calling with someone else\'s entry id is refused before anything is injected', () => {
   const e = newEngine(); const id = mk(e, U1);
   assert.equal(code(call(e, ADMIN, { targetId: C.castT1, entryId: id })), 'not_found');
