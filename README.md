@@ -98,7 +98,7 @@ Publishes on `127.0.0.1` only (a test pins it), runs as a non-root user with a r
 
 ## Tests
 
-`npm test` runs the server tests (`node --test test/*.test.js`, a glob), the web tests (vitest against the real Express app) and the repo tests (`node --test scripts/*.test.mjs`). On Node 26: __COUNTS__. Conformance (`node ~/Development/demo-kit-base-rule18-warn/scripts/conformance.mjs . --new`), `check-drift.sh` and `check-css.sh` are run by hand.
+`npm test` runs the server tests (`node --test test/*.test.js`, a glob), the web tests (vitest against the real Express app) and the repo tests (`node --test scripts/*.test.mjs`). On Node 26: 138 server tests, 33 web tests and 24 repo tests, all passing. Conformance (`node ~/Development/demo-kit-base-rule18-warn/scripts/conformance.mjs . --new`), `check-drift.sh` and `check-css.sh` are run by hand.
 
 ## Troubleshooting
 
