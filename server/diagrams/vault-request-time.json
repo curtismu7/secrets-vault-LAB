@@ -1,7 +1,7 @@
 {
   "schema": "diagram-studio/1",
   "id": "vault-request-time",
-  "title": "User Vault: the credential is injected at request time",
+  "title": "User Vault: the caller's own credential, injected at request time",
   "lede": "An agent asks for an operation. The gateway reads only the caller's own vault, unseals the credential and injects it. The agent never sees it and the backend logs who actually acted. Ping release claim, UNVERIFIED on our tenant. Simulated.",
   "groups": {
     "client": { "label": "Caller", "color": "dark" },

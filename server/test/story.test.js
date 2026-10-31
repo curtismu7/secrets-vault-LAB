@@ -52,6 +52,10 @@ test('the response mask leaves every vertical\'s story untouched (it must only c
   for (const [v, c] of Object.entries(VERTICALS)) { const s = buildStory(c, v); assert.deepEqual(maskDeep(s), s, v); }
 });
 
+test('the response mask leaves every diagram untouched in every vertical (a title like "credential is ..." would be eaten by it)', () => {
+  for (const [v, c] of Object.entries(VERTICALS)) for (const n of DIAGRAM_NAMES) { const d = buildDiagram(c, n); assert.deepEqual(maskDeep(d), d, `${v}/${n}`); }
+});
+
 test('the diagrams are diagram-studio/1 data, valid, loaded by name, with no overlapping node positions', () => {
   assert.deepEqual(DIAGRAM_NAMES, ['vault-request-time', 'secret-store-no-copy']);
   for (const n of DIAGRAM_NAMES) {

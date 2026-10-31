@@ -20,7 +20,7 @@ export default function StoresTab({ story, lab }) {
   const items = state.stores.items.filter((i) => i.provider === prov.id);
   const off = lab.readOnly || lab.busy;
   useEffect(() => { setPath(""); setMsg(null); setDelivery(null); }, [pid]);
-  useEffect(() => { if (!items.some((i) => i.ref === pc.ref)) setPc((p) => ({ ...p, ref: items[0]?.ref || "" })); }, [items, pc.ref]);
+  useEffect(() => { if (!items.some((i) => i.ref === pc.ref)) setPc((p) => { const ref = items[0]?.ref || ""; return p.ref === ref ? p : { ...p, ref }; }); }, [items, pc.ref]);
   const show = (r, ok) => setMsg(r.ok ? { ok: true, text: ok } : { ok: false, text: `Refused: ${r.body.error || r.status}${r.body.detail ? ` (${r.body.detail})` : ""}` });
   const post = (route, body) => lab.act("POST", route, body);
   const read = async (i) => { const r = await post("/api/stores/read", { read: { ref: i.ref, consumer } }); if (r.ok) setDelivery(r.body.result); else setDelivery(null); show(r, `Read: value delivered to the consumer (masked).`); };
