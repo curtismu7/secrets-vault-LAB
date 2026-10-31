@@ -97,8 +97,8 @@ export class MockProvider {
   }
   touchNodes() { /* AWS prefixes are derived from the paths; the other providers keep explicit containers */ }
 
-  current(pid) { const r = this.secrets.get(pid); return r ? r.versions[r.versions.length - 1] : null; }
-  read(pid) { const r = this.secrets.get(pid); return r && r.state === 'active' ? this.current(pid).fields : null; }
+  current(pid) { const r = this.secrets.get(pid); return r ? r.versions[r.versions.length - 1].fields : null; }
+  read(pid) { const r = this.secrets.get(pid); return r && r.state === 'active' ? this.current(pid) : null; }
 
   pushVersion(rec, fields, now) {
     rec.versions.push({ v: rec.versions[rec.versions.length - 1].v + 1, at: now, fields });
