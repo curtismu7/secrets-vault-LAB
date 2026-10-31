@@ -1,0 +1,25 @@
+# OrbStack:  HOST_PORT=7450 docker compose up --build -d   ->  http://127.0.0.1:7450
+# The server binds 0.0.0.0 INSIDE the container (SVLAB_BIND is the opt-in), but the port is published on loopback only.
+# Do not change the 127.0.0.1 below. HOST_PORT must stay in 7450-7499. SVL_LAB_MODE=live opens the page in Live mode
+# (still loopback, no outbound). Mock is the default.
+name: secrets-vault-lab
+
+services:
+  secrets-vault-lab:
+    build: .
+    ports:
+      - "127.0.0.1:${HOST_PORT:-7450}:7450"
+    environment:
+      PORT: "7450"
+      SVLAB_BIND: 0.0.0.0
+      SVL_LAB_MODE: ${SVL_LAB_MODE:-mock}
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:7450/api/health').then(r=>r.json()).then(j=>process.exit(j.schema==='demo-health/1'&&j.state==='ready'?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      start_period: 5s
+      start_interval: 2s
+      timeout: 5s
+      retries: 3
