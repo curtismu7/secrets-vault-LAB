@@ -3,6 +3,7 @@
 // something the gateway announces. A shared service account is one credential for everyone, so the backend logs the same identity every time.
 // All of this is lab-invented behaviour behind the deck claim "the backend sees who actually acted" (UNVERIFIED).
 import { createHmac } from 'node:crypto';
+import { findCredentials } from './credentials.js';
 
 export const SHAPES = ['bearer', 'api-key', 'basic', 'headers'];
 export const SHAPE_TEXT = {
@@ -13,7 +14,8 @@ export const SHAPE_TEXT = {
 };
 export const HEADER_NAME = /^[A-Za-z][A-Za-z0-9-]{0,39}$/;
 const FORBIDDEN_HEADERS = new Set(['host', 'content-length', 'transfer-encoding', 'connection', 'cookie', 'set-cookie', 'authorization']);
-export const headerNameProblem = (n, { allowAuthorization = false } = {}) => (typeof n !== 'string' || !HEADER_NAME.test(n) || (FORBIDDEN_HEADERS.has(n.toLowerCase()) && !(allowAuthorization && n.toLowerCase() === 'authorization')) ? 'bad_header_name' : null);
+// A header name is metadata the page shows, so a name that looks like a credential is refused (it would be echoed in the entry's header list).
+export const headerNameProblem = (n) => (typeof n !== 'string' || !HEADER_NAME.test(n) || FORBIDDEN_HEADERS.has(n.toLowerCase()) || findCredentials(n).length ? 'bad_header_name' : null);
 
 // The headers the gateway injects for a shape and a decrypted payload (the only place the plaintext is turned into wire form).
 export function headersFor(shape, payload, headerName) {

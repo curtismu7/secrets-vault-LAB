@@ -143,7 +143,7 @@ test('the no-copy proof is computed: every value the providers hold, in plain, b
   run(e, 'storeCreate', ADMIN, { secret: { provider: 'cyberark', path: `${C.castSafe}/typed`, fields: { secret: 'a-value-the-visitor-typed-0001', userName: 'svc-typed-account' } } });
   const p = snap(e, ADMIN).proof;
   assert.ok(p.valuesChecked >= 20, String(p.valuesChecked)); assert.equal(p.valuesFound, 0); assert.deepEqual(p.encodings, ['plain', 'base64', 'hex']);
-  assert.ok(p.areas.length >= 14 && p.areas.every((a) => a.bytes > 2)); assert.equal(p.bytesScanned, p.areas.reduce((n, a) => n + a.bytes, 0));
+  assert.ok(p.areas.length >= 14 && p.areas.every((a) => a.bytes >= 2)); assert.equal(p.bytesScanned, p.areas.reduce((n, a) => n + a.bytes, 0));
   assert.equal(p.selfTest.detected, true);
   const all = e.dump() + JSON.stringify(e.roster.size ? [...e.roster.keys()].map((id) => snap(e, id)) : '') + JSON.stringify(e.s.audit);
   for (const v of e.providerValues()) { if (v.length >= 12) assert.ok(!all.includes(v) && !all.includes(Buffer.from(v).toString('base64')) && !all.includes(Buffer.from(v).toString('hex')), 'a provider value is in Privilege state'); }

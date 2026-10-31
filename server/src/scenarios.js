@@ -21,7 +21,7 @@ export function scenarioList(c) {
       say: 'A person stores a credential in their own vault, edits its notes without re-entering the secret, and the gateway uses it at request time. The backend logs who actually acted; with a shared service account it logs the same identity for everyone.',
       steps: [
         S(c.castUser, `${c.castUser} stores a bearer token for ${c.castT1} (a mock credential the lab generates).`, 'vaultCreate', entry({ name: 'Ledger bearer', targetId: c.castT1, shape: 'bearer', notes: 'first version' })),
-        S(c.castUser, 'The notes are edited. The secret is omitted, so the stored value is kept untouched.', 'vaultUpdate', { id: 'vcr-0001', entry: { notes: 'rotated quarterly' } }),
+        S(c.castUser, 'The notes are edited. The secret field is left out, so the stored value is kept untouched.', 'vaultUpdate', { id: 'vcr-0001', entry: { notes: 'rotated quarterly' } }),
         S(c.castUser, `The agent asks ${c.castT1} for a summary. The gateway injects ${c.castUser}'s own credential; the agent never sees it.`, 'gatewayCall', call({ targetId: c.castT1, as: 'per-user' })),
         S(c.castUser, 'The same call through a shared service account, for contrast.', 'gatewayCall', call({ targetId: c.castT1, as: 'shared' })),
         S(c.castUser2, `${c.castUser2} makes the same shared-account call: the backend logs the same identity.`, 'gatewayCall', call({ targetId: c.castT1, as: 'shared' })),
@@ -87,11 +87,11 @@ export function scenarioList(c) {
       id: 'governed-read', title: 'Read and write are separate grants', actor: c.castAdmin,
       say: 'The user can read an AWS secret but not rotate it; the administrator can rotate it but not read it. A value is delivered only to a simulated consumer, never into an API response. Everything is audited, allowed or denied.',
       steps: [
-        S(c.castUser, `${c.castUser} reads the AWS database secret: the value goes to the simulated gateway, masked here.`, 'storeRead', { read: { ref: `aws:${c.castAwsPrefix}/db-admin`, consumer: 'simulated-gateway' } }),
+        S(c.castUser, `${c.castUser} reads the AWS database secret, and the value goes to the simulated gateway, masked here.`, 'storeRead', { read: { ref: `aws:${c.castAwsPrefix}/db-admin`, consumer: 'simulated-gateway' } }),
         S(c.castUser, `${c.castUser} tries to rotate it: read is granted, write is not.`, 'storeRotate', { ref: `aws:${c.castAwsPrefix}/db-admin` }),
         S(c.castAdmin, `${c.castAdmin} tries to read it: write is granted, read is not.`, 'storeRead', { read: { ref: `aws:${c.castAwsPrefix}/db-admin`, consumer: 'simulated-gateway' } }),
         S(c.castAdmin, 'The administrator rotates it: allowed.', 'storeRotate', { ref: `aws:${c.castAwsPrefix}/db-admin` }),
-        S(c.castSupport, `${c.castSupport} has no grant at all: the secret is not found.`, 'storeRead', { read: { ref: `aws:${c.castAwsPrefix}/db-admin`, consumer: 'simulated-gateway' } }),
+        S(c.castSupport, `${c.castSupport} has no grant at all, so the secret does not exist for them.`, 'storeRead', { read: { ref: `aws:${c.castAwsPrefix}/db-admin`, consumer: 'simulated-gateway' } }),
         S(c.castAdmin, `The administrator grants ${c.castSupport} read on the AWS payments secrets.`, 'grant', { grant: { principal: c.castSupport, scope: `aws:${c.castAwsPrefix}/**`, actions: ['read'] } }),
         S(c.castSupport, 'Now the read is allowed, and delivered to the consumer.', 'storeRead', { read: { ref: `aws:${c.castAwsPrefix}/db-admin`, consumer: 'simulated-agent-tool' } }),
       ],
@@ -100,7 +100,7 @@ export function scenarioList(c) {
       id: 'nightly-resync', title: 'The nightly re-sync notices what changed at the provider', actor: c.castAdmin,
       say: 'Someone renames one secret, deletes another and adds a third directly at the providers. Privilege is not told. When the lab clock crosses 02:00 the connected stores re-synchronise: metadata only, no value is ever requested.',
       steps: [
-        S(c.castAdmin, 'A secret is renamed in the AWS console.', 'providerChange', { change: { provider: 'aws', op: 'rename', ref: `aws:${c.castAwsPrefix}/db-admin`, newPath: `${c.castAwsPrefix}/db-admin-v2` } }),
+        S(c.castAdmin, 'One secret gets renamed in the AWS console.', 'providerChange', { change: { provider: 'aws', op: 'rename', ref: `aws:${c.castAwsPrefix}/db-admin`, newPath: `${c.castAwsPrefix}/db-admin-v2` } }),
         S(c.castAdmin, 'Another is deleted at AWS.', 'providerChange', { change: { provider: 'aws', op: 'delete', ref: `aws:${c.castAwsPrefix}/signing-key` } }),
         S(c.castAdmin, 'A new secret appears in a GCP project.', 'providerChange', { change: { provider: 'gcp', op: 'create', path: `${c.castOrg}/${c.castFolder}/${c.castProject}/new-key` } }),
         S(c.castAdmin, 'The clock moves to 01:59: the nightly re-sync has not run.', 'advance', { clock: { minutes: 1019 } }),

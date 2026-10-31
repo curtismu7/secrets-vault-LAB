@@ -29,11 +29,11 @@
   ],
   "steps": [
     { "title": "The agent asks", "what": "The agent asks the gateway for an operation on {{castT1}}. It holds no credential.", "edges": [0] },
-    { "title": "Only the caller's own vault", "what": "The gateway looks in the vault of the caller, and nowhere else: there is no way to name another vault.", "edges": [1] },
+    { "title": "Caller's own vault only", "what": "The gateway looks in the vault of the caller, and nowhere else: there is no way to name another vault.", "edges": [1] },
     { "title": "The key unseals it", "what": "The data key, resolved at startup from AWS Secrets Manager with KMS, or Vault, or the development key as fallback, opens the sealed value.", "edges": [2] },
-    { "title": "The credential reaches the gateway", "what": "The plaintext lives in memory for this call and is never returned by any API.", "edges": [3] },
-    { "title": "Injected into the backend call", "what": "The gateway builds the Authorization or header form for the entry's shape and sends it.", "edges": [4] },
-    { "title": "The backend logs who acted", "what": "The backend identifies the caller from the credential itself, so its log names {{castUser}}, not a shared account.", "edges": [5] },
-    { "title": "The agent gets the answer", "what": "Only the answer goes back. The agent never learned the credential.", "edges": [6] }
+    { "title": "Credential to gateway", "what": "The plaintext lives in memory for this call and is never returned by any API.", "edges": [3] },
+    { "title": "Injected into backend", "what": "The gateway builds the Authorization or header form for the entry's shape and sends it.", "edges": [4] },
+    { "title": "Backend logs who acted", "what": "The backend identifies the caller from the credential itself, so its log names {{castUser}}, not a shared account.", "edges": [5] },
+    { "title": "Answer to the agent", "what": "Only the answer goes back. The agent never learned the credential.", "edges": [6] }
   ]
 }

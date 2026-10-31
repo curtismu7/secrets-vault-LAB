@@ -188,7 +188,7 @@ export class Engine {
     const allowedKeys = { bearer: ['token'], 'api-key': ['key'], basic: ['username', 'password'], headers: ['headers'] }[shape];
     if (!Object.keys(payload).every((k) => allowedKeys.includes(k))) throw refuse('bad_secret', 'the secret carries a field this credential shape does not have');
     if (!partial) {
-      if (shape === 'headers' ? !isObj(payload.headers) : !strs(payload, allowedKeys)) throw refuse('bad_secret', 'the secret is missing a field, or a field is empty or contains a line break');
+      if (shape === 'headers' ? !isObj(payload.headers) : !strs(payload, allowedKeys)) throw refuse('bad_secret', 'a secret field is missing, empty or contains a line break');
     } else for (const k of Object.keys(payload)) if (k !== 'headers' && (typeof payload[k] !== 'string' || payload[k].length === 0 || /[\r\n\0]/.test(payload[k]))) throw refuse('bad_secret', 'a secret field must be a non-empty string without line breaks');
     if (shape === 'basic' && typeof payload.username === 'string' && payload.username.includes(':')) throw refuse('bad_secret', 'an HTTP Basic user name cannot contain a colon');
     if (shape === 'headers' && payload.headers !== undefined) {
@@ -409,7 +409,7 @@ export class Engine {
     return { p, shape };
   }
   providerHop(id, op, path, conn, resp) {
-    this.hop(`${PROVIDERS[id].name} (simulated, ${op})`, { method: conn.shape.method, url: conn.shape.url, headers: { authorization: 'provider connection credential: sealed at rest, never shown' } }, resp);
+    this.hop(`${PROVIDERS[id].name} (simulated, ${op})`, { method: conn.shape.method, url: conn.shape.url, headers: { authorization: 'the provider connection is sealed at rest and never shown' } }, resp);
   }
 
   rowFor(actor, ref) { const row = this.invOf(ref); if (!row) { this.audit(actor, 'store', 'store.lookup', '-', 'denied', 'not_found'); throw refuse('not_found', 'there is no such secret in the inventory', 404); } return row; }
@@ -434,7 +434,7 @@ export class Engine {
     if (p.id === 'delinea' && (typeof template !== 'string' || !Object.hasOwn(DELINEA_TEMPLATES, template))) throw refuse('bad_template', 'the template must be Password or Secure-File');
     const problem = p.pathProblem(input.path); if (problem) throw refuse(problem, problem === 'already_exists' ? 'a secret already exists at that path' : problem === 'parent_not_found' ? 'the folder, vault, safe or project does not exist at the provider' : 'that path is not valid for this provider', problem === 'already_exists' ? 409 : 400);
     const tags = this.tagsOf(input.tags); const given = this.fieldMap(input.fields);
-    if (this.s.inventory.length >= LIMITS.inventory) throw refuse('inventory_full', 'the inventory holds at most 400 secrets: Reset to start again', 409);
+    if (this.s.inventory.length >= LIMITS.inventory) throw refuse('inventory_full', 'the inventory is full at 400 secrets, so Reset to start again', 409);
     const conn = this.connect(p.id, 'create', input.path);
     p.fieldsFrom(template, given); // validate before creating
     const pid = p.create({ path: input.path, template, tags, given, now: this.now() });
@@ -449,10 +449,10 @@ export class Engine {
     const a = this.begin(actorIn);
     if (!CONSUMERS.includes(consumer)) throw refuse('bad_consumer', 'the consumer must be one of the lab\'s simulated consumers');
     const row = this.rowFor(a, ref); this.gate(a, row, 'read');
-    if (row.state !== 'active') throw refuse('soft_deleted', 'this secret is soft-deleted at the provider: recover it first', 409);
+    if (row.state !== 'active') throw refuse('soft_deleted', 'soft-deleted at the provider: recover it first', 409);
     const conn = this.connect(row.provider, 'read', row.path);
     const fields = conn.p.read(row.pid);
-    if (!fields) throw refuse('not_found_at_provider', 'the provider no longer has this secret: re-synchronise the inventory', 409);
+    if (!fields) throw refuse('not_found_at_provider', 'the provider no longer has this secret, so re-synchronise the inventory', 409);
     this.providerHop(row.provider, 'read', row.path, conn, { status: 200, body: { fields: Object.keys(fields), values: 'returned to the gateway only, never to this API' } });
     const total = Object.values(fields).reduce((n, f) => n + bytes(f.value), 0);
     const digest = createHmac('sha256', this.consumers[consumer].key).update(JSON.stringify(fields)).digest('hex');
@@ -469,7 +469,7 @@ export class Engine {
   storeUpdate(actorIn, { ref, fields, tags } = {}) {
     const a = this.begin(actorIn);
     const row = this.rowFor(a, ref); this.gate(a, row, 'write');
-    if (row.state !== 'active') throw refuse('soft_deleted', 'this secret is soft-deleted at the provider: recover it first', 409);
+    if (row.state !== 'active') throw refuse('soft_deleted', 'soft-deleted at the provider: recover it first', 409);
     if (fields === undefined && tags === undefined) throw refuse('nothing_to_update', 'give fields, tags, or both (an omitted field keeps its stored value)', 400);
     const given = this.fieldMap(fields); const newTags = tags === undefined ? undefined : this.tagsOf(tags);
     const conn = this.connect(row.provider, 'update', row.path);
@@ -483,7 +483,7 @@ export class Engine {
   storeRotate(actorIn, { ref } = {}) {
     const a = this.begin(actorIn);
     const row = this.rowFor(a, ref); this.gate(a, row, 'write');
-    if (row.state !== 'active') throw refuse('soft_deleted', 'this secret is soft-deleted at the provider: recover it first', 409);
+    if (row.state !== 'active') throw refuse('soft_deleted', 'soft-deleted at the provider: recover it first', 409);
     const conn = this.connect(row.provider, 'rotate', row.path);
     conn.p.rotate(row.pid, this.now()); this.refreshRow(row);
     this.providerHop(row.provider, 'rotate', row.path, conn, { status: 200, body: { currentVersion: row.currentVersion, rotationCount: row.rotationCount } });
@@ -493,7 +493,7 @@ export class Engine {
   storeDelete(actorIn, { ref } = {}) {
     const a = this.begin(actorIn);
     const row = this.rowFor(a, ref); this.gate(a, row, 'write');
-    if (row.state === 'soft-deleted') throw refuse('already_deleted', 'this secret is already soft-deleted', 409);
+    if (row.state === 'soft-deleted') throw refuse('already_deleted', 'already soft-deleted', 409);
     const conn = this.connect(row.provider, 'delete', row.path);
     const how = conn.p.remove(row.pid, this.now());
     if (how === 'hard') this.s.inventory = this.s.inventory.filter((r) => r !== row); else this.refreshRow(row);
@@ -505,7 +505,7 @@ export class Engine {
     const a = this.begin(actorIn);
     const row = this.rowFor(a, ref); this.gate(a, row, 'write');
     if (!PROVIDERS[row.provider].softDelete) throw refuse('unsupported_operation', `${PROVIDERS[row.provider].name} has no soft-delete in this lab (the deck lists soft-delete and purge for Azure)`, 409);
-    if (row.state !== 'soft-deleted') throw refuse('not_soft_deleted', 'this secret is not soft-deleted', 409);
+    if (row.state !== 'soft-deleted') throw refuse('not_soft_deleted', 'not soft-deleted', 409);
     const conn = this.connect(row.provider, 'recover', row.path);
     conn.p.recover(row.pid); this.refreshRow(row);
     this.providerHop(row.provider, 'recover', row.path, conn, { status: 200, body: { recovered: true } });
@@ -549,7 +549,7 @@ export class Engine {
         const problem = p.pathProblem(newPath); if (problem) throw refuse(problem, 'that path is not valid for this provider, or its container does not exist', problem === 'already_exists' ? 409 : 400);
         p.rename(row.pid, newPath);
       } else if (op === 'delete') p.remove(row.pid, this.now());
-      else { if (p.secrets.get(row.pid).state !== 'active') throw refuse('soft_deleted', 'this secret is soft-deleted at the provider', 409); p.rotate(row.pid, this.now()); }
+      else { if (p.secrets.get(row.pid).state !== 'active') throw refuse('soft_deleted', 'soft-deleted at the provider', 409); p.rotate(row.pid, this.now()); }
     }
     this.hop(`${PROVIDERS[p.id].name}: changed by hand (simulated; Privilege is not told)`, { method: 'LAB', url: `provider://${p.id}`, body: { op } }, { status: 200, body: { inventoryUpdated: false } });
     this.audit('provider-console', 'provider', `provider.${op}`, p.id, 'allowed', 'by_hand');
@@ -582,7 +582,7 @@ export class Engine {
         this.s.inventory.push(this.invRow(id, m)); items.push({ provider: id, change: 'new', ref: `${id}:${m.path}` }); c.new += 1;
       }
     }
-    const proof = this.noCopyProof(false);
+    const proof = this.noCopyProof(false, { scope: 'stores' });
     const report = { id: `sync-${String(++this.s.seq.report).padStart(4, '0')}`, at: iso(atMs), kind, byProvider: by, items: items.slice(0, 200), itemsTotal: items.length, skippedFull, valuesFoundInInventoryAfter: proof.valuesFound };
     this.s.reports.push(report); if (this.s.reports.length > LIMITS.reports) this.s.reports.shift();
     this.hop('re-sync: metadata only from every provider', { method: 'LIST', url: 'providers://*/secrets?metadata=only' }, { status: 200, body: { changes: items.length, valuesRequested: 0 } });
@@ -616,16 +616,22 @@ export class Engine {
   // Serialises everything the Privilege side keeps (inventory, grants, audit, reports, deliveries, sealed vault values, sealed connections, and the
   // state every roster member would be shown) and searches it for every value the providers hold (all versions, plain, base64 and hex), every
   // provider connection credential, and every vault plaintext. A canary self-test proves the search can find a value. Computed now, never stored.
-  noCopyProof(withSnapshots = true) {
+  // scope 'stores' searches only for provider values and connections (used by the re-sync report); 'all' adds every vault plaintext and the state shown to
+  // each person. A very large workspace can be too slow to search on every write, so a write may ask for a budget: over it, the answer says SKIPPED
+  // (never a made-up pass) and the next state read computes it in full.
+  noCopyProof(withSnapshots = true, { scope = 'all', budget = Infinity } = {}) {
+    if (scope === 'all' && budget !== Infinity && Object.values(this.s.vault).reduce((n, l) => n + l.length, 0) > 60) return { skipped: true, reason: 'this workspace holds more than 60 vault entries: the search is skipped on writes and runs in full when the state is read', valuesChecked: 0, bytesScanned: 0 };
     const needles = [];
     const add = (label, v) => { if (typeof v === 'string' && bytes(v) >= LIMITS.probeBytes) needles.push([label, v]); else if (typeof v === 'string') needles.skipped = (needles.skipped || 0) + 1; };
     for (const id of PROVIDER_IDS) for (const v of this.#providers[id].allValues()) add('store value', v);
     for (const id of PROVIDER_IDS) { try { add('provider connection', openBytes(this.#keys.key, this.s.connections[id].sealed, `svl1|provider-credential|${id}`).toString('utf8')); } catch { /* counted below */ } }
-    for (const [user, list] of Object.entries(this.s.vault)) for (const e of list) { try { const p = JSON.parse(openBytes(this.#keys.key, e.sealed, aadFor(user, e.id)).toString('utf8')); for (const v of [p.token, p.key, p.username, p.password, ...(p.headers ? Object.values(p.headers) : [])]) add('vault credential', v); } catch { /* integrity failures are reported by the vault */ } }
-    for (const t of Object.values(this.#shared)) for (const v of [t.token, t.key, t.username, t.password, ...(t.headers ? Object.values(t.headers) : [])]) add('shared service account', v);
+    if (scope === 'all') for (const [user, list] of Object.entries(this.s.vault)) for (const e of list) { try { const p = JSON.parse(openBytes(this.#keys.key, e.sealed, aadFor(user, e.id)).toString('utf8')); for (const v of [p.token, p.key, p.username, p.password, ...(p.headers ? Object.values(p.headers) : [])]) add('vault credential', v); } catch { /* integrity failures are reported by the vault */ } }
+    if (scope === 'all') for (const t of Object.values(this.#shared)) for (const v of [t.token, t.key, t.username, t.password, ...(t.headers ? Object.values(t.headers) : [])]) add('shared service account', v);
     const areas = { inventory: this.s.inventory, grants: this.s.policies, audit: this.s.audit, 'sync reports': this.s.reports, deliveries: this.s.deliveries, 'sealed vault values': this.s.vault, 'sealed connections': this.s.connections, 'gateway log': this.s.gatewayLog, 'backend log': this.backend.log };
-    if (withSnapshots) for (const p of this.roster.values()) areas[`state shown to ${p.role}`] = this.snapshotCore(p);
+    if (withSnapshots) for (const p of this.roster.values()) areas[`state shown to ${p.id} (${p.role})`] = this.snapshotCore(p);
     const text = Object.fromEntries(Object.entries(areas).map(([k, v]) => [k, JSON.stringify(v)]));
+    const total = Object.values(text).reduce((n, t) => n + t.length, 0);
+    if (needles.length * total > budget) return { skipped: true, reason: 'this workspace is large: the search is skipped on writes and runs in full when the state is read', valuesChecked: needles.length, bytesScanned: total };
     const variants = (v) => [v, Buffer.from(v, 'utf8').toString('base64'), Buffer.from(v, 'utf8').toString('hex')];
     const found = [];
     for (const [label, v] of needles) for (const form of variants(v)) for (const [area, t] of Object.entries(text)) if (t.includes(form)) found.push({ label, area });
@@ -667,7 +673,7 @@ export class Engine {
       },
     };
   }
-  snapshot(actorIn) { const s = this.snapshotCore(actorIn); return { ...s, proof: this.noCopyProof(true) }; }
+  snapshot(actorIn, { fullProof = true } = {}) { const s = this.snapshotCore(actorIn); return { ...s, proof: this.noCopyProof(true, fullProof ? {} : { budget: 100_000_000 }) }; }
 
   // Everything the Privilege side holds, for tests that search it. Never holds a plaintext value; the providers' own stores are NOT in it.
   dump() { return JSON.stringify({ s: this.s, backendLog: this.backend.log }); }

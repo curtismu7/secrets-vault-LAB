@@ -43,5 +43,5 @@ export function runAction({ ws, workspaces, vertical, cast, op, actorId, params,
   const first = { n: 1, label: 'browser to the lab API', request: { method: route.method, url: route.url, headers: { traceparent: formatTraceparent(t.traceId, root), 'x-workspace': ws, 'x-lab-actor': actor ? actor.id : 'unknown' }, body: scrub(params) }, response: { status: outcome.ok ? 200 : outcome.status, body: outcome.ok ? { ok: true } : { error: outcome.code } } };
   const hops = [first, ...e.hops.map((h, i) => ({ ...h, n: i + 2 }))];
   const truncated = e.hopsTruncated; e.hops = [];
-  return { outcome, hops, hopsTruncated: truncated, traceparent: formatTraceparent(t.traceId, root), traceId: t.traceId, state: e.snapshot(actor || e.actor(Object.keys(e.s.vault)[0])) };
+  return { outcome, hops, hopsTruncated: truncated, traceparent: formatTraceparent(t.traceId, root), traceId: t.traceId, state: e.snapshot(actor || e.actor(Object.keys(e.s.vault)[0]), { fullProof: false }) };
 }
