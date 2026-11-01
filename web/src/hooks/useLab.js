@@ -23,7 +23,8 @@ export default function useLab({ mode, vertical, scenario, actor }) {
     return getJson(`/api/state?${q}`).then((j) => { if (mine === seq.current) { setData(j); setError(null); } }, (e) => { if (mine === seq.current) setError(e.message); });
   }, [mode, vertical, scenario, actor]);
   // Switching mode, vertical or person clears the page; switching only the scenario keeps the old one on screen until the new one arrives.
-  useEffect(() => { setData(null); setLast(null); }, [mode, vertical, actor]);
+  // The context change also drops every load still in flight (bump the sequence number), even when no new load starts yet because the new vertical has no person.
+  useEffect(() => { seq.current += 1; setData(null); setLast(null); }, [mode, vertical, actor]);
   useEffect(() => { load(); }, [load]);
 
   // act(method, route, extra): one write. The state in the answer replaces the page's state, unless a newer load or write has started.

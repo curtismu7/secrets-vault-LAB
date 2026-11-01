@@ -168,7 +168,7 @@ export function createApp({ health = createHealth(), configFile = CONFIG, worksp
 
   if (fs.existsSync(path.join(webDist, 'index.html'))) {
     app.use(express.static(webDist));
-    app.get(/^\/(?!api\/).*/, (_req, res) => res.sendFile(path.join(webDist, 'index.html')));
+    app.get(/^\/(?!api\/|assets\/).*/, (_req, res) => res.sendFile(path.join(webDist, 'index.html')));
   }
   // The last two handlers catch everything that is left, for every method and every path: Express's default answers would echo the path the
   // visitor typed, which may be a token. Fixed JSON, no path.

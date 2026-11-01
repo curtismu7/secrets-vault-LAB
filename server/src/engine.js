@@ -380,7 +380,7 @@ export class Engine {
   gatewayCall(actorIn, { targetId, as, entryId, operation } = {}) {
     const a = this.begin(actorIn);
     const t = this.targetOf(targetId);
-    if (!['per-user', 'shared'].includes(as)) throw refuse('bad_mode', 'as must be per-user or shared');
+    if (!['per-user', 'shared'].includes(as)) throw refuse('bad_as', 'as must be per-user or shared');
     if (typeof operation !== 'string' || !t.operations.includes(operation)) throw refuse('bad_operation', 'that operation is not offered by this target');
     let headers; let lookedIn; let entry = null;
     this.hop('agent to gateway (no credential)', { method: 'POST', url: `https://gateway.example/${t.protocol}/${t.id}`, body: { tool: operation, onBehalfOf: a.id, credential: 'none: the agent never holds one' } }, { status: 202, body: { note: 'the gateway adds the credential' } });

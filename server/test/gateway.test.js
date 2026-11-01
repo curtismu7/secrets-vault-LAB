@@ -52,7 +52,7 @@ test('no fallback: with no entry for the target the call is refused (not served 
 test('a call with the wrong entry for the target, a bad mode, an unknown target or an unknown operation is refused', () => {
   const e = newEngine(); const id = mk(e, U1);
   assert.equal(code(call(e, U1, { targetId: C.castT2, entryId: id })), 'entry_target_mismatch');
-  assert.equal(code(call(e, U1, { targetId: C.castT1, entryId: id, as: 'admin' })), 'bad_mode');
+  assert.equal(code(call(e, U1, { targetId: C.castT1, entryId: id, as: 'admin' })), 'bad_as');
   assert.equal(code(call(e, U1, { targetId: 'nope', entryId: id })), 'unknown_target');
   assert.equal(code(call(e, U1, { targetId: C.castT1, entryId: id, operation: 'drop_tables' })), 'bad_operation');
 });

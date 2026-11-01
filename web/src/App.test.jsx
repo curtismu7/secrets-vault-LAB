@@ -113,6 +113,9 @@ describe("Mock mode: seven scripted scenarios, read-only", () => {
     await click("scn-staged-delete");
     await waitFor(() => expect(screen.getByTestId("scenario-steps")).toHaveTextContent(/purged/), T);
     await tab("Governance"); expect(await screen.findByTestId("proof-found")).toHaveTextContent("0");
+    // Mock shows what the table recorded: it must not claim to be computed now, and it cannot be re-run here.
+    expect(screen.getByTestId("proof")).toHaveTextContent(/recorded when the Mock table was generated/); expect(screen.getByTestId("proof")).not.toHaveTextContent(/computed now/);
+    expect(screen.getByTestId("proof-run")).toBeDisabled(); expect(screen.getByTestId("proof-run")).toHaveTextContent(/Live only/);
     await tab("Request-time injection"); await click("scn-own-vault");
     await waitFor(() => expect(screen.getAllByTestId("log-principal").map((x) => x.textContent)).toEqual([C.castUser, `svc-${C.castT1}`, `svc-${C.castT1}`]), T);
   });

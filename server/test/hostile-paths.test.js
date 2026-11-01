@@ -61,3 +61,17 @@ test('S2: a workspace id that looks like a credential is refused, never echoed i
     }
   });
 });
+
+test('a missing file under /assets is a JSON 404, not the page; a file that exists is served; other GET paths still get the page', async () => {
+  const dist = fs.mkdtempSync(path.join(os.tmpdir(), 'svl-dist-')); fs.writeFileSync(path.join(dist, 'index.html'), '<!doctype html><title>x</title>');
+  fs.mkdirSync(path.join(dist, 'assets')); fs.writeFileSync(path.join(dist, 'assets', 'app.js'), 'console.log(1);');
+  try {
+    await withServer(async (url) => {
+      const host = new URL(url).host;
+      const missing = await rawHttp(`${url}/assets/missing.js`, { headers: { host } });
+      assert.equal(missing.status, 404); assert.deepEqual(JSON.parse(missing.text), { error: 'not_found' });
+      assert.equal((await rawHttp(`${url}/assets/app.js`, { headers: { host } })).status, 200);
+      const page = await rawHttp(`${url}/some/route`, { headers: { host } }); assert.equal(page.status, 200); assert.match(page.headers['content-type'], /text\/html/);
+    }, { webDist: dist });
+  } finally { fs.rmSync(dist, { recursive: true, force: true }); }
+});

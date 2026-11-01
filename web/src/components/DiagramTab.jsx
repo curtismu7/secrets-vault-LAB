@@ -11,17 +11,16 @@ export default function DiagramTab({ vertical, resetSignal }) {
   const [name, setName] = useState("vault-request-time");
   useEffect(() => {
     let live = true; // a late answer for a diagram or vertical the visitor has already left is dropped
-    setPattern(null);
+    setPattern(null); setError(null);
     getJson(`/api/diagram?vertical=${encodeURIComponent(vertical)}&name=${name}`).then((j) => { if (live) setPattern(j); }, (e) => { if (live) setError(e.message); });
     return () => { live = false; };
   }, [vertical, name]);
-  if (error) return <p className="field-error" role="alert">Could not load the diagram ({error}).</p>;
   return (
     <>
       <div className="seg" role="group" aria-label="Diagram">
         {NAMES.map(([id, label]) => <button key={id} type="button" aria-pressed={name === id} onClick={() => setName(id)} data-testid={`dg-${id}`}>{label}</button>)}
       </div>
-      {pattern ? <PatternDiagram key={name} pattern={pattern} resetSignal={resetSignal} /> : <p className="muted">Loading...</p>}
+      {error ? <p className="field-error" role="alert">Could not load the diagram ({error}).</p> : pattern ? <PatternDiagram key={name} pattern={pattern} resetSignal={resetSignal} /> : <p className="muted">Loading...</p>}
     </>
   );
 }

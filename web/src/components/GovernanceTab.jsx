@@ -14,7 +14,8 @@ function Proof({ proof, lab, mode, vertical }) {
     setNote(r.body?.ok ? "" : `The proof could not run (${r.body?.error || r.status}).`);
     await lab.reload(); setRunning(false);
   };
-  const again = mode === "live" ? runNow : lab.reload;
+  // Mock reads a table: its numbers were recorded when the table was generated, so the page says so and offers no re-run (the Live panel is computed).
+  const recorded = mode !== "live";
   if (proof.skipped) {
     return (
       <section className="panel" data-state="warn" data-testid="proof">
@@ -28,13 +29,14 @@ function Proof({ proof, lab, mode, vertical }) {
   }
   return (
     <section className="panel" data-state={proof.valuesFound === 0 && proof.selfTest.detected ? "ok" : "bad"} data-testid="proof">
-      <h3 className="panel__sub">No-copy proof, computed now <SourceTag source="invented" /></h3>
+      <h3 className="panel__sub">{recorded ? "No-copy proof, recorded when the Mock table was generated" : "No-copy proof, computed now"} <SourceTag source="invented" /></h3>
+      {recorded && <p className="muted" data-testid="proof-recorded">These numbers come from the Mock table, which the lab generated from its own engine ahead of time. Switch to Live to run the search on your own workspace.</p>}
       <p>Searched <strong data-testid="proof-bytes">{proof.bytesScanned.toLocaleString("en-US")}</strong> bytes in <strong>{proof.areas.length}</strong> areas for <strong data-testid="proof-checked">{proof.valuesChecked}</strong> values the providers, the connections and the vaults hold (forms: {proof.encodings.join(", ")}; a long value by its first, middle and last 63 characters). Found in anything Privilege keeps: <strong data-testid="proof-found">{proof.valuesFound}</strong>.</p>
       <p data-testid="proof-short">{proof.shortChecked} short value(s) (4 to 11 bytes) are matched only as a whole field, never inside ordinary text; {proof.skippedTiny} value(s) under 4 bytes are skipped and counted.</p>
       <p data-testid="proof-selftest">Self-test, computed by the same scans: {proof.selfTest.detected ? `all ${proof.selfTest.planted} planted copies were found and the clean control gave ${proof.selfTest.falsePositives}` : `only ${proof.selfTest.found} of ${proof.selfTest.planted} planted copies were found, so this search proves nothing`}. {proof.selfTest.howTested}.</p>
       <div className="scroll"><table className="tbl" data-testid="proof-areas"><thead><tr><th>Area searched</th><th>Bytes</th></tr></thead><tbody>{proof.areas.map((a) => <tr key={a.name}><td>{a.name}</td><td>{a.bytes.toLocaleString("en-US")}</td></tr>)}</tbody></table></div>
       <p className="muted">This is a search, not a guarantee: it finds a value stored in the clear, JSON-escaped, or as base64 or hex, and nothing cleverer. Ciphertext bodies of sealed values are counted, not searched (they are AES-GCM output). The provider's own store is outside it, by design.</p>
-      <button type="button" disabled={running} onClick={again} data-testid="proof-run">{running ? "Running..." : "Run the proof again"}</button>
+      <button type="button" disabled={running || recorded} onClick={runNow} data-testid="proof-run">{running ? "Running..." : recorded ? "Run the proof again (Live only)" : "Run the proof again"}</button>
       {note && <p className="field-error" role="alert">{note}</p>}
     </section>
   );
