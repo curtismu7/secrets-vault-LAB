@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ClaimTag, SourceTag, StatusTag } from "./Bits";
 import KeyPanel from "./KeyPanel";
 import { probe } from "../api";
@@ -47,11 +47,14 @@ function CreateForm({ state, lab }) {
   const [v, setV] = useState({});
   const [notes, setNotes] = useState("");
   const [msg, setMsg] = useState(null);
+  const last = useRef(0);
   useEffect(() => { if (!state.targets.some((x) => x.id === target)) setTarget(state.targets[0]?.id || ""); }, [state.targets, target]);
   const tg = state.targets.find((x) => x.id === target);
   const shape = tg?.accepts || "bearer";
   const off = lab.readOnly || lab.busy || !tg;
   const submit = async () => {
+    // a second click within 1.5 s of the last submit is a double click, not a second entry
+    const now = Date.now(); if (now - last.current < 1500) return; last.current = now;
     const entry = { name, targetId: target, shape, ...(notes ? { notes } : {}), ...(generate ? { generate: true } : { secret: secretFrom(shape, v) }) };
     const r = await lab.act("POST", "/api/vault/entries", { entry });
     setMsg(r.ok ? { ok: true, text: `Stored ${r.body.result.entryId} in your vault: ${r.body.result.entry.secret.bytes} bytes, sealed, shown only as present and masked.` } : { ok: false, text: `Refused: ${r.body.error || r.status}${r.body.detail ? ` (${r.body.detail})` : ""}` });

@@ -1,6 +1,6 @@
 // These tests drive the real UI against the real Express app (started on a loopback port inside the test), so a green run means the pieces
 // actually work together: the real story data, the real engine, the real Mock table.
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createApp, startHttpServer } from "../../server/src/app.js";
@@ -478,6 +478,17 @@ describe("S6: switching vertical, person, provider and mode never sends a stale 
 });
 
 describe("double clicks, the on-demand proof and the administrator-only helpers", () => {
+  it("a second click right after the first response is a double click, not a second entry; a deliberate second submit later still works", async () => {
+    await mount(); await live();
+    let t = 1_000_000; const spy = vi.spyOn(Date, "now").mockImplementation(() => t);
+    try {
+      await click("ce-submit"); await waitFor(() => expect(screen.getByTestId("create-message")).toHaveTextContent(/Stored vcr-0001/), T); await settled();
+      await click("ce-submit"); await click("ce-submit"); await settled();
+      expect(screen.getByTestId("vault-count")).toHaveTextContent("1 of 500");
+      t += 2000; await click("ce-submit"); await waitFor(() => expect(screen.getByTestId("vault-count")).toHaveTextContent("2 of 500"), T);
+    } finally { spy.mockRestore(); }
+  });
+
   it("six rapid clicks on Store in my vault make ONE entry", async () => {
     await mount(); await live();
     const b = screen.getByTestId("ce-submit"); for (let i = 0; i < 6; i++) fireEvent.click(b);
