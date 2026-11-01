@@ -40,3 +40,8 @@ test('the settings file: absent is fine, a world-readable one is flagged, its va
     assert.equal((await runChecks({ env: { STANDALONE_ENV: f } })).find((x) => x.id === 'settings-file').level, 'pass');
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
+
+test('the doctor reports the netguard self-test as 7 of 7 routes blocked (udp connect included)', async () => {
+  const c = await runChecks({ env: { HOME: '/nonexistent' } });
+  const ng = c.find((x) => x.id === 'netguard'); assert.equal(ng.level, 'pass'); assert.match(ng.detail, /udp connect.*\(7\/7\)/);
+});
