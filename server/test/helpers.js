@@ -31,13 +31,16 @@ export const put = (url, path, body, actor = U1, headers = {}) => fetch(`${url}$
 export const get = (url, path, actor = U1, headers = {}) => fetch(`${url}${path}`, { headers: { ...(actor ? { 'x-lab-actor': actor } : {}), ...headers } });
 export const live = (extra = {}) => ({ mode: 'live', vertical: 'finance', ...extra });
 
-// fetch cannot set Host; node:http can.
-export function rawHttp(url, { method = 'GET', headers = {}, body } = {}) {
-  return new Promise((resolve, reject) => {
+// fetch cannot set Host; node:http can. The sweeps open thousands of short connections while other test files run in parallel, so a connection that is
+// reset or refused BEFORE any answer is retried (these requests change no state: they probe paths and answer fixed errors); an answer is never retried.
+export function rawHttp(url, { method = 'GET', headers = {}, body } = {}, tries = 6) {
+  const once = () => new Promise((resolve, reject) => {
     const u = new URL(url);
     const req = http.request({ host: u.hostname, port: u.port, path: u.pathname + u.search, method, headers, agent: false }, (res) => {
       let data = ''; res.on('data', (c) => { data += c; }); res.on('end', () => resolve({ status: res.statusCode, headers: res.headers, text: data }));
+      res.on('error', reject);
     });
     req.on('error', reject); if (body) req.write(body); req.end();
   });
+  return (async () => { for (let i = 0; ; i++) { try { return await once(); } catch (e) { if (i + 1 >= tries || !['ECONNRESET', 'ECONNREFUSED', 'EPIPE'].includes(e.code)) throw e; await new Promise((r) => setTimeout(r, 50 * (i + 1))); } } })();
 }
