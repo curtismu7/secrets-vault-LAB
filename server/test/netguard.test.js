@@ -9,8 +9,8 @@ import { installNetguard, netguardSelfTest } from '../src/netguard.js';
 test('self-test: every route out is refused and recorded, none reaches the network', async () => {
   const r = await netguardSelfTest();
   assert.equal(r.ok, true, r.detail);
-  assert.equal(r.blocked, 6);
-  assert.match(r.detail, /fetch: blocked.*socket: blocked.*socket-ip: blocked.*dns: blocked.*dns-resolve: blocked.*udp: blocked/);
+  assert.equal(r.blocked, 7);
+  assert.match(r.detail, /fetch: blocked.*socket: blocked.*socket-ip: blocked.*dns: blocked.*dns-resolve: blocked.*udp: blocked.*udp-connect: blocked/);
   installNetguard().restore();
 });
 
@@ -84,4 +84,39 @@ test('udp: the address is found by position, so a message body cannot masquerade
     assert.deepEqual(g.attempts.filter((a) => a.startsWith('udp:')), ['udp:evil.invalid', 'udp:evil2.invalid', 'udp:evil3.invalid']);
     s.send('plain message', 9, '127.0.0.1', () => {}); // a string body is fine for loopback
   } finally { s.close(); g.restore(); }
+});
+
+test('UDP connect-then-send is guarded: connecting to a non-loopback peer is refused and recorded, so an address-less send never runs', () => {
+  const g = installNetguard();
+  const s = dgram.createSocket('udp4');
+  let sent = false;
+  try {
+    assert.throws(() => s.connect(9, ['192', '0', '2', '17'].join('.'), () => { sent = true; s.send('hello'); }), /network blocked/);
+    assert.throws(() => s.connect(9, 'peer.invalid'), /network blocked/);
+    assert.throws(() => s.connect(9, 5), /network blocked/, 'a non-string address is refused');
+    assert.deepEqual(g.attempts.filter((a) => a.startsWith('udp-connect:')), ['udp-connect:192.0.2.17', 'udp-connect:peer.invalid', 'udp-connect:5']);
+    assert.equal(sent, false);
+  } finally { s.close(); g.restore(); }
+});
+
+test('UDP connect to loopback still works under the guard, and a connected send goes through with zero recorded attempts', async () => {
+  const g = installNetguard();
+  const server = dgram.createSocket('udp4');
+  await new Promise((r) => server.bind(0, '127.0.0.1', r));
+  const got = new Promise((r) => server.once('message', (m) => r(String(m))));
+  const c = dgram.createSocket('udp4');
+  try {
+    await new Promise((r) => c.connect(server.address().port, '127.0.0.1', r));
+    c.send('ping');
+    assert.equal(await got, 'ping');
+    assert.deepEqual(g.attempts, []);
+  } finally { c.close(); server.close(); g.restore(); }
+});
+
+test('restore puts the real dgram connect back', () => {
+  const before = dgram.Socket.prototype.connect;
+  const g = installNetguard();
+  assert.notEqual(dgram.Socket.prototype.connect, before);
+  g.restore();
+  assert.equal(dgram.Socket.prototype.connect, before);
 });

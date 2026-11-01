@@ -1,4 +1,4 @@
-// Runtime netguard: zero real outbound. Every non-loopback socket, DNS lookup, fetch and UDP send is refused and recorded.
+// Runtime netguard: zero real outbound. Every non-loopback socket, DNS lookup, fetch, UDP send and UDP connect is refused and recorded.
 // The mock authorization server is in-process, so nothing in this app has a reason to leave the machine.
 import dns from 'node:dns';
 import net from 'node:net';
@@ -11,7 +11,7 @@ export function installNetguard() {
   if (active) return active;
   const attempts = [];
   const real = {
-    connect: net.Socket.prototype.connect, lookup: dns.lookup, fetch: globalThis.fetch, send: dgram.Socket.prototype.send,
+    connect: net.Socket.prototype.connect, lookup: dns.lookup, fetch: globalThis.fetch, send: dgram.Socket.prototype.send, udpConnect: dgram.Socket.prototype.connect,
     plookup: dns.promises.lookup,
   };
   // Every resolver entry point that can reach a real name server: dns.resolve*, dns.promises.resolve*, and Resolver instances.
@@ -66,6 +66,14 @@ export function installNetguard() {
     if (!isLoopbackHost(url.hostname)) { attempts.push(`fetch:${url.hostname}`); throw new Error(`network blocked: ${url.hostname}`); }
     return real.fetch(input, init);
   };
+  // connect(port [, address] [, cb]) fixes the peer; a later send() with no address goes there, so the peer is checked here.
+  // No address means Node's own loopback default (127.0.0.1); anything that is not a loopback string is refused.
+  dgram.Socket.prototype.connect = function guardedUdpConnect(...args) {
+    const addr = args[1];
+    const ok = addr === undefined || typeof addr === 'function' || (typeof addr === 'string' && isLoopbackHost(addr));
+    if (!ok) { attempts.push(`udp-connect:${addr}`); throw new Error(`network blocked: ${addr}`); }
+    return real.udpConnect.apply(this, args);
+  };
   dgram.Socket.prototype.send = function guardedSend(...args) {
     // send(msg, [offset, length,] port [, address] [, cb]): the message is args[0] and is never the address.
     const rest = args.slice(1);
@@ -80,7 +88,7 @@ export function installNetguard() {
     restore() {
       for (const [holder, name, orig] of savedResolvers) holder[name] = orig;
       dns.promises.lookup = real.plookup;
-      net.Socket.prototype.connect = real.connect; dns.lookup = real.lookup; globalThis.fetch = real.fetch; dgram.Socket.prototype.send = real.send;
+      net.Socket.prototype.connect = real.connect; dns.lookup = real.lookup; globalThis.fetch = real.fetch; dgram.Socket.prototype.send = real.send; dgram.Socket.prototype.connect = real.udpConnect;
       active = null;
     },
   };
@@ -100,7 +108,8 @@ export async function netguardSelfTest() {
   await refused('dns', () => new Promise((res, rej) => dns.lookup('self-test.invalid', (e) => (e ? rej(e) : res()))));
   await refused('dns-resolve', () => dns.promises.resolve4('self-test.invalid'));
   await refused('udp', () => { const s = dgram.createSocket('udp4'); try { s.send('x', 9, 'self-test.invalid'); } finally { s.close(); } });
+  await refused('udp-connect', () => { const s = dgram.createSocket('udp4'); try { s.connect(9, ['192', '0', '2', '17'].join('.')); } finally { s.close(); } });
   const blocked = guard.attempts.length - before;
   guard.attempts.length = before; // self-test attempts are not real attempts
-  return { ok: tried.every((t) => t.endsWith(': blocked')) && blocked === 6, blocked, detail: tried.join('; ') };
+  return { ok: tried.every((t) => t.endsWith(': blocked')) && blocked === 7, blocked, detail: tried.join('; ') };
 }
