@@ -30,8 +30,8 @@ export default function useLab({ mode, vertical, scenario, actor }) {
     const mine = ++actSeq.current; const key = `${mode}|${vertical}|${actor}`;
     inflight.current += 1; setBusy(true);
     try {
-      const raw = await sendJson(method, route, { mode, vertical, refusalsAs200: true, ...extra });
-      // A write is a success ONLY when the body says `ok: true`. A refusal comes back as data (200 with ok: false).
+      const raw = await sendJson(method, route, { mode, vertical, ...extra });
+      // A write is a success ONLY when the body says `ok: true`. A refusal is a real 4xx whose JSON body is read as data (error, detail, the fresh state).
       const r = { ...raw, ok: raw.ok && raw.body?.ok === true };
       if (mine === actSeq.current && key === ctx.current) {
         seq.current += 1; // a load that started before this write must not overwrite its newer state

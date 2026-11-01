@@ -13,7 +13,7 @@ import { visible } from "./safeText";
 import { forgetWorkspace } from "./workspace";
 
 const C = VERTICALS.finance;
-let server; let base; const realFetch = globalThis.fetch; let seen = [];
+let server; let base; const realFetch = globalThis.fetch; let seen = []; let statuses = [];
 let delay = () => 0;
 let override = () => null;
 let pending = 0;
@@ -23,19 +23,19 @@ beforeAll(async () => {
   base = base.replace(/\/$/, "");
   globalThis.fetch = async (u, init = {}) => {
     const url = typeof u === "string" && u.startsWith("/") ? `${base}${u}` : u;
-    seen.push({ url: String(url), body: typeof init.body === "string" ? init.body : "", headers: init.headers || {} });
+    const rec = { url: String(url), body: typeof init.body === "string" ? init.body : "", headers: init.headers || {} }; seen.push(rec);
     pending += 1;
     try {
       const own = override(String(url), init); if (own) return own;
       const ms = delay(String(url), init); if (ms) await new Promise((r) => setTimeout(r, ms));
       const r = await realFetch(url, { ...init, headers: { origin: base, ...(init.headers || {}) } });
-      await r.clone().text();
+      await r.clone().text(); statuses.push({ url: rec.url, status: r.status });
       return r;
     } finally { pending -= 1; }
   };
 });
 afterAll(async () => { globalThis.fetch = realFetch; await new Promise((r) => server.close(r)); });
-beforeEach(() => { cleanup(); forgetWorkspace(); seen = []; delay = () => 0; override = () => null; pending = 0; try { window.localStorage.clear(); window.sessionStorage.clear(); } catch { /* ignore */ } window.location.hash = ""; });
+beforeEach(() => { cleanup(); forgetWorkspace(); seen = []; statuses = []; delay = () => 0; override = () => null; pending = 0; try { window.localStorage.clear(); window.sessionStorage.clear(); } catch { /* ignore */ } window.location.hash = ""; });
 
 const T = { timeout: 20000 };
 const mount = async () => { render(<App />); await screen.findByTestId("scenarios", {}, T); };
@@ -393,11 +393,14 @@ describe("stale answers and honest successes", () => {
     }
   });
 
-  it("a refusal shows its reason as data (200 with ok false), and the page asked for it", async () => {
+  it("a refusal is a real 4xx whose body the page reads as data: the reason is shown, no error is thrown, and there is no refusalsAs200 flag any more", async () => {
     await mount(); await live();
     fireEvent.change(screen.getByTestId("ce-name"), { target: { value: "" } }); await click("ce-submit");
     await waitFor(() => expect(screen.getByTestId("create-message")).toHaveTextContent(/Refused: bad_name/), T);
-    expect(seen.some((x) => x.body.includes('"refusalsAs200":true'))).toBe(true);
+    expect(seen.some((x) => /vault\/entries$/.test(x.url) && x.body.includes('"name":""'))).toBe(true);
+    expect(seen.every((x) => !x.body.includes("refusalsAs200"))).toBe(true);
+    expect(statuses.some((s) => s.url.endsWith("/api/vault/entries") && s.status === 400)).toBe(true);
+    expect(screen.queryByText(/Could not load the lab/)).toBeNull();
   });
 });
 

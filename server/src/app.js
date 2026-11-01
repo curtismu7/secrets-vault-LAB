@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 import express from 'express';
 import { hostCheck, sameOriginWrites } from './safety.js';
 import { createHealth } from './health.js';
-import { buildRoster, loadCast, verticalFrom } from './cast.js';
+import { buildRoster, loadCast, verticalFrom, VERTICALS } from './cast.js';
 import { defaultMode, modeOf } from './config.js';
 import { buildStory } from './story.js';
 import { DIAGRAM_NAMES, buildDiagram } from './diagramData.js';
@@ -38,6 +38,12 @@ export function createApp({ health = createHealth(), configFile = CONFIG, worksp
   api.use((_req, res, next) => { const send = res.json.bind(res); res.json = (b) => send(maskDeep(b)); next(); });
   api.use('/health', health.router);
   const verticalOf = (req) => verticalFrom(req.body?.vertical ?? req.query.vertical);
+  // An unknown vertical is refused (400), never silently replaced by the default one. Fixed text, the value is never echoed.
+  const verticalOk = (req, res) => {
+    const raw = req.body?.vertical ?? req.query.vertical;
+    if (raw === undefined || (typeof raw === 'string' && Object.hasOwn(VERTICALS, raw))) return true;
+    res.status(400).json({ error: 'bad_vertical', detail: 'vertical must be one of the lab\'s packs' }); return false;
+  };
   const castFor = (req) => loadCast(configFile, verticalOf(req));
   const noStore = (res) => res.set('Cache-Control', 'no-store');
   const ws = (req, res) => { const id = workspaceFrom(req); if (!id) res.status(400).json({ error: 'bad_workspace' }); return id; };
@@ -46,15 +52,20 @@ export function createApp({ health = createHealth(), configFile = CONFIG, worksp
   // Query strings are strict too: a parameter that names an owner or user is refused, never ignored and never echoed.
   const queryOk = (req, res) => { if (Object.keys(req.query).every((k) => QUERY_OK.includes(k))) return true; res.status(400).json({ error: 'unknown_field', detail: 'the query carries a parameter the lab does not take' }); return false; };
 
-  api.get('/story', (req, res) => { noStore(res); if (!queryOk(req, res)) return; res.json(buildStory(castFor(req), verticalOf(req))); });
-  api.get('/diagram', (req, res) => { noStore(res); if (!queryOk(req, res)) return; res.json(buildDiagram(castFor(req), DIAGRAM_NAMES.includes(req.query.name) ? req.query.name : DIAGRAM_NAMES[0])); });
+  api.get('/story', (req, res) => { noStore(res); if (!queryOk(req, res) || !verticalOk(req, res)) return; res.json(buildStory(castFor(req), verticalOf(req))); });
+  api.get('/diagram', (req, res) => {
+    noStore(res); if (!queryOk(req, res) || !verticalOk(req, res)) return;
+    const name = req.query.name === undefined ? DIAGRAM_NAMES[0] : req.query.name;
+    if (typeof name !== 'string' || !DIAGRAM_NAMES.includes(name)) return res.status(404).json({ error: 'unknown_diagram' });
+    return res.json(buildDiagram(castFor(req), name));
+  });
   api.get('/info', (_req, res) => { noStore(res); res.json({ mode: defaultMode(), modes: ['mock', 'live'], simulated: true, release: '2026-11-02', unverified: true }); });
 
   // The engine for a read: the workspace's own, or a fresh one that is never stored.
   const readEngine = (req, res) => {
     const id = ws(req, res); if (!id) return null;
     noStore(res);
-    if (!queryOk(req, res)) return null;
+    if (!queryOk(req, res) || !verticalOk(req, res)) return null;
     const vertical = verticalOf(req);
     const e = workspaces.peek(id, vertical) || new Engine(castFor(req));
     const actor = e.actor(actorId(req));
@@ -65,10 +76,14 @@ export function createApp({ health = createHealth(), configFile = CONFIG, worksp
   api.get('/state', (req, res) => {
     const id = ws(req, res); if (!id) return;
     noStore(res);
-    if (!queryOk(req, res)) return;
+    if (!queryOk(req, res) || !verticalOk(req, res)) return;
     const mode = modeOf(req.query.mode); if (!mode) return res.status(400).json({ error: 'bad_mode', detail: 'mode must be mock or live' });
     const vertical = verticalOf(req);
-    if (mode === 'mock') return res.json({ mode, vertical, workspace: id, ...mockState(table, vertical, req.query.scenario) });
+    if (mode === 'mock') {
+      const sc = req.query.scenario;
+      if (sc !== undefined && (typeof sc !== 'string' || !table.verticals[vertical].scenarios.some((s) => s.id === sc))) return res.status(404).json({ error: 'unknown_scenario' });
+      return res.json({ mode, vertical, workspace: id, ...mockState(table, vertical, sc) });
+    }
     if (!buildRoster(castFor(req)).some((p) => p.id === actorId(req))) return res.status(401).json({ error: actorId(req) === null ? 'actor_required' : 'unknown_actor' });
     return res.json({ mode, vertical, workspace: id, state: liveState(id, workspaces, vertical, castFor(req), actorId(req)) });
   });
@@ -92,16 +107,17 @@ export function createApp({ health = createHealth(), configFile = CONFIG, worksp
         const mode = modeOf(req.body.mode);
         if (!mode) return res.status(400).json({ error: 'bad_mode', detail: 'mode must be mock or live' });
         if (mode === 'mock') return res.status(409).json({ error: 'mock_is_read_only', detail: 'Mock mode only reads tables: switch to Live to act' });
-        if (!Object.keys(req.body).every((k) => ['mode', 'vertical', 'refusalsAs200', ...keys].includes(k))) return res.status(400).json({ error: 'unknown_field', detail: 'the body carries a field the lab does not take' });
+        if (!Object.keys(req.body).every((k) => ['mode', 'vertical', ...keys].includes(k))) return res.status(400).json({ error: 'unknown_field', detail: 'the body carries a field the lab does not take' });
+        if (!verticalOk(req, res)) return;
         const vertical = verticalOf(req);
         const r = runAction({ ws: id, workspaces, vertical, cast: castFor(req), op, actorId: actorId(req), params: params(req), traceparent: req.headers.traceparent, route: { method: method.toUpperCase(), url: `/api${route}` } });
         if (!r) return res.status(503).json({ error: 'workspace_cap', detail: 'too many workspaces on this lab: try again later' });
         res.set('traceparent', r.traceparent);
         const common = { workspace: id, mode, vertical, hops: r.hops, hopsTruncated: r.hopsTruncated, traceId: r.traceId, state: r.state };
         if (r.outcome.ok) return res.json({ ok: true, result: r.outcome.result, ...common });
-        // The page asks for refusals as data (HTTP 200 with ok: false): a browser logs every 4xx answer as a console error, and a refusal the visitor
-        // asked for (another person's entry, a missing grant) is the point of the demo. Anyone else gets the honest 4xx status.
-        return res.status(req.body.refusalsAs200 === true && r.outcome.status !== 401 ? 200 : (r.outcome.status || 400)).json({ ok: false, error: r.outcome.code, detail: r.outcome.detail, ...common });
+        // A refusal is a real HTTP status (400, 401, 403, 404, 409, 413, 503) with the same JSON body: the page reads that body as data, and the
+        // browser logs the 4xx as a console line. Nothing is hidden behind a 200.
+        return res.status(r.outcome.status || 400).json({ ok: false, error: r.outcome.code, detail: r.outcome.detail, ...common });
       } catch (e) { return next(e); }
     });
   };
@@ -152,6 +168,8 @@ export function createApp({ health = createHealth(), configFile = CONFIG, worksp
 export function startHttpServer({ port, host, app = createApp() } = {}) {
   return new Promise((resolve, reject) => {
     const server = app.listen(port, host, () => resolve({ server, url: `http://${host}:${server.address().port}/` }));
+    // A busy client reusing a keep-alive socket the server had just closed was the source of rare ECONNRESETs: keep idle sockets longer than a load balancer would.
+    server.keepAliveTimeout = 61_000; server.headersTimeout = 65_000;
     server.once('error', reject);
   });
 }

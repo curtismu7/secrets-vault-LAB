@@ -4,6 +4,11 @@ import { C, U1, U2, ADMIN, AUD, SUP, ALL, get, post, put, live, rawHttp, withSer
 import { MOCK_TABLE } from '../src/mockTable.js';
 import { installNetguard } from '../src/netguard.js';
 
+// The parallel tests send `connection: close`, so no request can race a keep-alive socket the server just closed (the cause of the one ECONNRESET seen at load 145).
+// Nothing is retried: a retried POST could double-create, and an assertion is never retried.
+const withRetry = (fn) => fn();
+const CLOSE = { connection: 'close' };
+
 const guard = installNetguard(); // installed for the whole file: every test here runs under it
 
 const W = (id) => ({ 'x-workspace': id });
@@ -23,7 +28,7 @@ test('the caller must be named: a missing or unknown X-Lab-Actor is 401 on state
   await withServer(async (url) => {
     for (const a of [null, 'nobody', '__proto__', 'x'.repeat(300)]) {
       for (const p of ['/api/state?mode=live', '/api/vault/entries', '/api/stores/secrets', '/api/governance']) { const r = await get(url, p, a); assert.equal(r.status, 401, `${a} ${p}`); }
-      const w = await post(url, '/api/vault/entries', live({ entry: entry(), refusalsAs200: true }), a); assert.equal(w.status, 401, 'a 401 is never turned into a 200');
+      const w = await post(url, '/api/vault/entries', live({ entry: entry() }), a); assert.equal(w.status, 401, 'a real 401');
       assert.equal((await w.json()).error, 'unknown_actor');
     }
     assert.equal((await get(url, '/api/state?mode=mock', null)).status, 200, 'the recorded Mock tables need no caller');
@@ -65,17 +70,18 @@ test('Mock mode is read-only: every write is 409, state comes from the recorded 
     for (const [p, b] of [['/api/vault/entries', { entry: entry() }], ['/api/clock', { clock: { minutes: 5 } }], ['/api/stores/resync', {}], ['/api/policies', { grant: {} }], ['/api/vault/keys', { key: {} }]]) assert.equal((await post(url, p, { mode: 'mock', vertical: 'finance', ...b })).status, 409, p);
     const s = await (await get(url, '/api/state?mode=mock&vertical=finance&scenario=staged-delete', null)).json();
     assert.equal(s.mode, 'mock'); assert.equal(s.scenario.id, 'staged-delete'); assert.equal(s.scenarios.length, 7);
-    assert.equal((await (await get(url, '/api/state?mode=mock&scenario=__proto__', null)).json()).scenario.id, MOCK_TABLE.verticals.finance.scenarios[0].id);
+    for (const bad of ['__proto__', 'constructor', 'nope']) { const r = await get(url, `/api/state?mode=mock&scenario=${bad}`, null); assert.equal(r.status, 404, bad); assert.deepEqual(await r.json(), { error: 'unknown_scenario' }); }
+    assert.equal((await (await get(url, '/api/state?mode=mock', null)).json()).scenario.id, MOCK_TABLE.verticals.finance.scenarios[0].id, 'no scenario named: the first');
     assert.equal((await get(url, '/api/state?mode=prod', null)).status, 400);
     assert.equal((await post(url, '/api/clock', { mode: 'prod', clock: { minutes: 5 } })).status, 400);
   });
 });
 
-test('Live writes: honest status codes by default, refusals as 200 with ok:false only when the page asks, a body with an unknown top-level field is 400', async () => {
+test('Live writes: every refusal is a real HTTP status with the same JSON body (never a 200), a body with an unknown top-level field is 400', async () => {
   await withServer(async (url) => {
     const bad = await post(url, '/api/vault/entries', live({ entry: entry({ targetId: 'nope' }) })); assert.equal(bad.status, 400);
-    const asData = await post(url, '/api/vault/entries', live({ entry: entry({ targetId: 'nope' }), refusalsAs200: true })); assert.equal(asData.status, 200);
-    const j = await asData.json(); assert.equal(j.ok, false); assert.equal(j.error, 'unknown_target'); assert.ok(j.state && j.hops.length);
+    const j = await bad.json(); assert.equal(j.ok, false); assert.equal(j.error, 'unknown_target'); assert.ok(j.state && j.hops.length, 'the refusal body still carries the fresh state and the hops, for the page to read as data');
+    const flag = await post(url, '/api/vault/entries', live({ entry: entry(), refusalsAs200: true })); assert.equal(flag.status, 400, 'the old refusalsAs200 flag no longer exists: it is an unknown field'); assert.equal((await flag.json()).error, 'unknown_field');
     assert.equal((await post(url, '/api/vault/keys', live({ key: { configured: 'none', reachable: true } }), U1)).status, 403);
     assert.equal((await post(url, '/api/vault/entries', live({ entry: entry(), extra: 1 }))).status, 400);
     assert.equal((await post(url, '/api/vault/entries', live({ entry: 'x' }))).status, 400);
@@ -96,12 +102,13 @@ test('the 64 KB bound over HTTP: exactly 65536 bytes is stored, 65537 is refused
 
 test('the 500-entry bound over HTTP, under 600 creates in parallel waves: exactly 500 succeed, 100 are refused, nothing is dropped or duplicated', async () => {
   await withServer(async (url) => {
-    const bodies = [];
+    const bodies = []; const statuses = [];
     for (let wave = 0; wave < 6; wave++) { // six waves of 100 truly parallel requests (one wave of 600 sockets overruns the listen backlog on a loaded machine)
-      const rs = await Promise.all(Array.from({ length: 100 }, (_, i) => post(url, '/api/vault/entries', live({ entry: entry({ name: `e${wave}-${i}` }), refusalsAs200: true }), U1, W('cap'))));
-      bodies.push(...await Promise.all(rs.map((r) => r.json())));
+      const rs = await Promise.all(Array.from({ length: 100 }, (_, i) => withRetry(() => post(url, '/api/vault/entries', live({ entry: entry({ name: `e${wave}-${i}` }) }), U1, { ...W('cap'), ...CLOSE }))));
+      statuses.push(...rs.map((r) => r.status)); bodies.push(...await Promise.all(rs.map((r) => r.json())));
     }
-    assert.equal(bodies.filter((b) => b.ok).length, 500); assert.equal(bodies.filter((b) => b.error === 'vault_full').length, 100);
+    assert.equal(statuses.filter((s) => s === 200).length, 500); assert.equal(statuses.filter((s) => s === 409).length, 100, 'the 501st and later are a real 409');
+    assert.ok(bodies.filter((b) => !b.ok).every((b) => b.error === 'vault_full'));
     const st = (await (await get(url, '/api/state?mode=live', U1, W('cap'))).json()).state; assert.equal(st.vault.count, 500);
     assert.equal(new Set(bodies.filter((b) => b.ok).map((b) => b.result.entryId)).size, 500);
     assert.equal(st.vault.distinctNonces, 500);
@@ -111,9 +118,10 @@ test('the 500-entry bound over HTTP, under 600 creates in parallel waves: exactl
 test('parallel deletes and restores of one entry end in one consistent state (double staging refused), and parallel store reads are each audited', async () => {
   await withServer(async (url) => {
     const id = (await mk(url, U1, 'par')).result.entryId;
-    const rs = await Promise.all(Array.from({ length: 10 }, () => post(url, `/api/vault/entries/${id}/delete`, live({ refusalsAs200: true }), U1, W('par'))));
-    const b = await Promise.all(rs.map((r) => r.json())); assert.equal(b.filter((x) => x.ok).length, 1); assert.equal(b.filter((x) => x.error === 'already_staged').length, 9);
-    const reads = await Promise.all(Array.from({ length: 8 }, () => post(url, '/api/stores/read', live({ read: { ref: `aws:${C.castAwsPrefix}/db-admin`, consumer: 'simulated-gateway' } }), U1, W('par'))));
+    const rs = await Promise.all(Array.from({ length: 10 }, () => withRetry(() => post(url, `/api/vault/entries/${id}/delete`, live({}), U1, { ...W('par'), ...CLOSE }))));
+    const b = await Promise.all(rs.map((r) => r.json())); assert.equal(rs.filter((r) => r.status === 200).length, 1); assert.equal(rs.filter((r) => r.status === 409).length, 9);
+    assert.equal(b.filter((x) => x.ok).length, 1); assert.equal(b.filter((x) => x.error === 'already_staged').length, 9);
+    const reads = await Promise.all(Array.from({ length: 8 }, () => post(url, '/api/stores/read', live({ read: { ref: `aws:${C.castAwsPrefix}/db-admin`, consumer: 'simulated-gateway' } }), U1, { ...W('par'), ...CLOSE })));
     assert.ok(reads.every((r) => r.status === 200));
     const gov = await (await get(url, '/api/governance', AUD, W('par'))).json(); assert.equal(gov.audit.filter((a) => a.action === 'store.read').length, 8);
   });
@@ -221,4 +229,17 @@ test('the server writes no file and spawns nothing: no worker thread or child pr
     const t = fs.readFileSync(new URL(`../src/${f}`, import.meta.url), 'utf8');
     assert.ok(!/child_process|worker_threads|cluster/.test(t), f);
   }
+});
+
+test('an unknown vertical is a 400 and an unknown diagram a 404 on every route that takes one (never a silent fallback); the value is never echoed', async () => {
+  await withServer(async (url) => {
+    for (const bad of ['nope', '__proto__', 'constructor', 'Finance']) {
+      for (const p of [`/api/story?vertical=${bad}`, `/api/diagram?vertical=${bad}`, `/api/state?mode=mock&vertical=${bad}`, `/api/state?mode=live&vertical=${bad}`, `/api/vault/entries?vertical=${bad}`]) {
+        const r = await get(url, p, U1); assert.equal(r.status, 400, p); const t = await r.text(); assert.deepEqual(JSON.parse(t).error, 'bad_vertical'); assert.ok(!t.includes(bad) || bad === 'Finance' && false, 'not echoed');
+      }
+      const w = await post(url, '/api/vault/entries', { mode: 'live', vertical: bad, entry: entry() }, U1); assert.equal(w.status, 400); assert.equal((await w.json()).error, 'bad_vertical');
+    }
+    for (const bad of ['nope', '__proto__', 'constructor']) { const r = await get(url, `/api/diagram?name=${bad}`, U1); assert.equal(r.status, 404); assert.deepEqual(await r.json(), { error: 'unknown_diagram' }); }
+    assert.equal((await get(url, '/api/diagram', U1)).status, 200); assert.equal((await get(url, '/api/diagram?name=secret-store-no-copy&vertical=health', U1)).status, 200);
+  });
 });

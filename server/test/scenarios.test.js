@@ -35,7 +35,7 @@ test('Mock parity: a scenario replayed through the Live HTTP API ends in the sam
   await withServer(async (url) => {
     for (const sc of scenarioList(C)) {
       const ws = `parity-${sc.id}`.slice(0, 30);
-      for (const st of sc.steps) { const [m, path, body] = routes[st.op]; await (m === 'PUT' ? fetch : fetch)(`${url}${path(st.params)}`, { method: m, headers: { 'content-type': 'application/json', origin: url, 'x-workspace': ws, 'x-lab-actor': st.actor }, body: JSON.stringify(live({ ...body(st.params), refusalsAs200: true })) }); }
+      for (const st of sc.steps) { const [m, path, body] = routes[st.op]; await (m === 'PUT' ? fetch : fetch)(`${url}${path(st.params)}`, { method: m, headers: { 'content-type': 'application/json', origin: url, 'x-workspace': ws, 'x-lab-actor': st.actor }, body: JSON.stringify(live({ ...body(st.params) })) }); }
       const liveState = (await (await get(url, '/api/state?mode=live&vertical=finance', sc.actor, { 'x-workspace': ws })).json()).state;
       const mock = mockState(MOCK_TABLE, 'finance', sc.id).state;
       for (const k of ['clock', 'targets', 'backendLog', 'gatewayLog', 'stores', 'governance']) {
