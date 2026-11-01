@@ -206,7 +206,8 @@ test('input rules: shapes, header names, line breaks, colons, empty values, excl
   assert.equal(mkc({ shape: 'headers', secret: { headers: {} } }), 'bad_secret');
   assert.equal(mkc({ targetId: 5 }), 'unknown_target');
   assert.equal(mkc({ name: '' }), 'bad_name');
-  assert.equal(mkc({ name: 'ab '.repeat(30) }), 'ok', '80 characters is the most a name keeps (longer text is cut to 80)');
+  assert.equal(mkc({ name: 'ab '.repeat(27).trim() }), 'ok', '80 characters is the most a name keeps');
+  assert.equal(mkc({ name: 'ab '.repeat(30) }), 'bad_name', 'longer text is refused whole, never cut');
   assert.equal(mkc({ name: 'a'.repeat(81) }), 'credential_shaped_text', 'a long unbroken run looks like a key and is refused, never echoed');
   assert.equal(mkc({ notes: 42 }), 'bad_notes');
 });

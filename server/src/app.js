@@ -16,7 +16,7 @@ import { InputError } from './errors.js';
 import { MOCK_TABLE } from './mockTable.js';
 import { createWorkspaces, workspaceFrom } from './workspaces.js';
 import { Engine } from './engine.js';
-import { liveState, mockState, runAction } from './service.js';
+import { liveState, mockState, onRoster, runAction } from './service.js';
 import { maskDeep } from './mask.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -153,9 +153,10 @@ export function createApp({ health = createHealth(), configFile = CONFIG, worksp
       if (mode === 'mock') return res.status(409).json({ error: 'mock_is_read_only', detail: 'Mock mode only reads tables: switch to Live to run it' });
       if (!Object.keys(req.body).every((k) => ['mode', 'vertical'].includes(k))) return res.status(400).json({ error: 'unknown_field', detail: 'the body carries a field the lab does not take' });
       if (!verticalOk(req, res)) return;
+      // The caller is checked BEFORE a workspace is created: an unidentified caller costs nothing and sees nothing.
+      if (!onRoster(castFor(req), actorId(req))) return res.status(401).json({ error: actorId(req) === null ? 'actor_required' : 'unknown_actor' });
       const e = workspaces.engine(id, verticalOf(req), castFor(req));
       if (!e) return res.status(503).json({ error: 'workspace_cap', detail: 'too many workspaces on this lab: try again later' });
-      if (!e.actor(actorId(req))) return res.status(401).json({ error: actorId(req) === null ? 'actor_required' : 'unknown_actor' });
       return res.json({ ok: true, proof: await e.proofAsync() });
     } catch (err) { return next(err); }
   });

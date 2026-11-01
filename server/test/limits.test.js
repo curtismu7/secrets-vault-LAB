@@ -15,18 +15,18 @@ test('tags: five are accepted, a sixth is refused whole (LIMITS.tags), duplicate
   assert.equal(ok(['x'.repeat(24)], 'three'), 'ok'); assert.equal(ok(['x'.repeat(25)], 'four'), 'bad_tags'); assert.equal(e.s.inventory.find((r) => r.path === 'prod/t/two'), undefined, 'refused whole');
 });
 
-test('name: 80 characters are kept whole, text beyond 80 is cut to 80 (never stored longer), an empty name is refused', () => {
+test('name: 80 characters are kept whole, 81 are refused whole (never cut), an empty name is refused', () => {
   assert.equal(LIMITS.name, 80); const e = newEngine();
-  const long = 'wxyz '.repeat(30); const id2 = mk(e, U1, { name: long }); assert.ok(e.vaultGet(e.roster.get(U1), id2).name.length <= 80);
   const exact = `${'abcd '.repeat(15)}abcde`; assert.equal(exact.length, 80); const id3 = mk(e, U1, { name: exact }); assert.equal(e.vaultGet(e.roster.get(U1), id3).name, exact, 'exactly 80 is kept whole');
-  const over = `${'abcd '.repeat(16)}`; assert.equal(over.length, 80); const id4 = mk(e, U1, { name: `${over}z` }); assert.equal(e.vaultGet(e.roster.get(U1), id4).name.length, 80, 'one over is cut to 80');
+  assert.equal(code(run(e, 'vaultCreate', U1, { entry: { name: `${exact}z`, targetId: C.castT1, shape: 'bearer', generate: true } })), 'bad_name', 'one over is refused, not cut');
+  assert.equal(code(run(e, 'vaultCreate', U1, { entry: { name: '  ', targetId: C.castT1, shape: 'bearer', generate: true } })), 'bad_name');
 });
 
-test('notes: 200 characters are kept whole, one over is cut to 200', () => {
+test('notes: 200 characters are kept whole, 201 are refused whole (never cut)', () => {
   assert.equal(LIMITS.notes, 200); const e = newEngine();
   const n200 = `${'abcd '.repeat(39)}abcde`; assert.equal(n200.length, 200);
   const a = mk(e, U1, { notes: n200 }); assert.equal(e.vaultGet(e.roster.get(U1), a).notes, n200);
-  const b = mk(e, U1, { notes: `${n200}z` }); assert.equal(e.vaultGet(e.roster.get(U1), b).notes.length, 200);
+  assert.equal(code(run(e, 'vaultCreate', U1, { entry: { name: 'n', targetId: C.castT1, shape: 'bearer', generate: true, notes: `${n200}z` } })), 'bad_notes');
 });
 
 test('provider path: 120 characters are accepted, 121 refused (PATH_MAX); a store field: 4096 bytes accepted, 4097 refused (FIELD_MAX_BYTES), by bytes not characters', () => {

@@ -39,11 +39,17 @@ export const nightlyIndex = (ms) => Math.floor((ms - NIGHTLY_HOUR_UTC * HOUR) / 
 function typedName(v, max, code = 'bad_name') {
   if (!isStr(v, max * 3)) throw refuse(code, 'a name is required (plain text, at most the length the lab allows)');
   if (findCredentials(v).length) throw refuse('credential_shaped_text', 'that text looks like a credential, so the lab refuses to keep it as a name');
-  const c = cleanFree(v, max);
-  if (!c || c.length > max) throw refuse(code, 'a name is required (plain text, at most the length the lab allows)');
+  const c = cleanFree(v, max + 1); // one past the limit: if that character survives, the text had to be cut, so the whole request is refused
+  if (!c || c.length > max) throw refuse(code, `a name is required (plain text, at most ${max} characters)`);
   return c;
 }
-const notesOf = (v) => (v === undefined || v === null ? '' : typeof v === 'string' ? cleanFree(v, LIMITS.notes) : (() => { throw refuse('bad_notes', 'notes must be text'); })());
+const notesOf = (v) => {
+  if (v === undefined || v === null) return '';
+  if (typeof v !== 'string') throw refuse('bad_notes', 'notes must be text');
+  const c = cleanFree(v, LIMITS.notes + 1); // one past the limit: if that character survives, the text had to be cut, so the whole request is refused
+  if (c.length > LIMITS.notes) throw refuse('bad_notes', `notes are at most ${LIMITS.notes} characters`);
+  return c;
+};
 
 export class Engine {
   #keys; #material; #shared; #connections; #providers; #rand;
@@ -633,7 +639,9 @@ export class Engine {
   grant(actorIn, input) {
     const a = this.begin(actorIn); this.requireRole(a, 'admin');
     if (typeof input.principal !== 'string' || !this.roster.has(input.principal)) throw refuse('bad_grant', 'the principal must be someone on the roster');
-    const sp = scopeProblem(input.scope); if (sp) throw refuse('bad_scope', 'a scope is "provider:path" using a provider id (or *) and segments, with * for one segment and ** for the rest');
+    const sp = scopeProblem(input.scope);
+    if (sp === 'credential_shaped_text') throw refuse('credential_shaped_text', 'that scope looks like a credential, so the lab refuses to keep it');
+    if (sp) throw refuse('bad_scope', 'a scope is "provider:path" using a provider id (or *) and segments, with * for one segment and ** for the rest');
     if (!Array.isArray(input.actions) || input.actions.length < 1 || input.actions.length > 2 || !input.actions.every((x) => ACTIONS.includes(x)) || new Set(input.actions).size !== input.actions.length) throw refuse('bad_grant', 'actions must be read, write, or both');
     if (this.s.policies.length >= LIMITS.policies) throw refuse('policies_full', 'a workspace has at most 100 grants', 409);
     const g = { id: `pol-${String(++this.s.seq.policy).padStart(4, '0')}`, principal: input.principal, scope: input.scope, actions: [...input.actions].sort(), by: a.id, at: iso(this.now()) };

@@ -8,7 +8,7 @@ import { findCredentials } from './credentials.js';
 export const SHAPES = ['bearer', 'api-key', 'basic', 'headers'];
 export const SHAPE_TEXT = {
   bearer: 'Bearer token, sent in the Authorization header with the word Bearer',
-  'api-key': 'API key: one header (default X-Api-Key) carries the key',
+  'api-key': 'API key (one header, default X-Api-Key, carries the key)',
   basic: 'Username and password as HTTP Basic: sent in the Authorization header with the word Basic',
   headers: 'Custom header pairs: 1 to 5 header names, each with its own value',
 };

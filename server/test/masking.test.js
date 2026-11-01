@@ -1,7 +1,7 @@
 // The masking heuristic, pinned: hidden characters, key-shaped JSON and glued assignments, percent-encoding, long inputs, and the response-level mask.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { cleanFree, findCredentials, normalizeText, maskText, maskResponseText } from '../src/credentials.js';
+import { cleanFree, findCredentials, normalizeText, maskText, maskResponseText, MAX_FREE, MAX_SCAN } from '../src/credentials.js';
 import { maskDeep } from '../src/mask.js';
 import { C, U1, get, post, live, withServer } from './helpers.js';
 import { HIDDEN } from './hidden.js';
@@ -62,11 +62,14 @@ test('the response-level mask is pinned: a credential inside any response string
   assert.match(maskResponseText('x'.repeat(30000)), /\[cut at 20000 characters\]$/);
 });
 
-test('long and hostile inputs are bounded: 7000 PEM headers, 200 KB of filler, and a token after 19,990 filler characters are all handled in well under a second, and the token is masked', () => {
-  const t0 = Date.now();
+test('long and hostile inputs are bounded by WORK, not by a clock: 7000 PEM headers, 200 KB of filler, and a token after 19,990 filler characters are scanned only up to the scan limit, give a bounded answer, and the token is masked', () => {
   const BEGIN = ['-----BEGIN ', 'PRIVATE KEY-----'].join(''); const BEGIN_RSA = ['-----BEGIN RSA ', 'PRIVATE KEY-----\n'].join('');
-  cleanFree(BEGIN.repeat(7000)); cleanFree(BEGIN_RSA.repeat(5000) + 'x'.repeat(3000)); cleanFree('a'.repeat(200_000));
-  assert.ok(Date.now() - t0 < 1500, `took ${Date.now() - t0} ms`);
+  for (const hostile of [BEGIN.repeat(7000), BEGIN_RSA.repeat(5000) + 'x'.repeat(3000), 'a'.repeat(200_000), 'ab '.repeat(70_000)]) {
+    const spans = findCredentials(hostile);
+    assert.ok(spans.every((sp) => sp.end <= MAX_SCAN), 'no span reaches past the scan limit: the text beyond it is never read');
+    assert.ok(cleanFree(hostile).length <= MAX_FREE, 'the answer is cut to the free-text maximum');
+  }
+  assert.equal(normalizeText('a'.repeat(200_000)).length, MAX_SCAN, 'the normaliser reads at most the scan limit');
   const filler = 'ok '.repeat(6600);
   assert.ok(!cleanFree(`${filler}${['gh', 'p_a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6q7R8'].join('')}`, 40000).includes('a1B2c3D4e5'));
   const key = ['-----BEGIN ', 'PRIVATE KEY-----\n', 'MIIEvQIBADANBgkqhkiG9w0B'.repeat(20), '\n-----END ', 'PRIVATE KEY-----'].join('');

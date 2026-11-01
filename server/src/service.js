@@ -4,6 +4,7 @@ import { Engine } from './engine.js';
 import { perform, KEYS } from './actions.js';
 import { cleanFree } from './credentials.js';
 import { newTrace, formatTraceparent } from './trace.js';
+import { buildRoster } from './cast.js';
 
 const isObj = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
 const SECRET_KEYS = new Set(['secret', 'fields', 'value', 'values']);
@@ -39,18 +40,23 @@ export function liveState(ws, workspaces, vertical, cast, actorId) {
   return e.snapshot(actor);
 }
 
+// True when the caller is on the lab roster. Checked BEFORE any workspace is created or any state is built, so an unidentified caller costs nothing.
+export const onRoster = (cast, actorId) => typeof actorId === 'string' && buildRoster(cast).some((p) => p.id === actorId);
+
 // Runs one engine action for a workspace with a trace. Returns { outcome, hops, traceparent, state }, or null when the workspace cap refuses a new workspace.
+// A caller who is not on the roster gets a 401 outcome with NO state and NO workspace (a refusal for an unidentified caller carries no one's vault).
 export function runAction({ ws, workspaces, vertical, cast, op, actorId, params, traceparent, route }) {
-  const e = workspaces.engine(ws, vertical, cast);
-  if (!e) return null;
-  const actor = e.actor(actorId);
+  const known = onRoster(cast, actorId);
+  const e = known ? workspaces.engine(ws, vertical, cast) : null;
+  if (known && !e) return null;
+  const actor = known ? e.actor(actorId) : null;
   const t = newTrace(traceparent);
   const root = t.span();
-  e.trace = { traceId: t.traceId, span: t.span }; e.hops = []; e.hopsTruncated = false;
   let outcome;
-  try { outcome = actor ? perform(e, op, actor, params) : { ok: false, status: 401, code: 'unknown_actor', detail: 'the caller is not on the lab roster' }; } finally { e.trace = null; }
+  if (e) { e.trace = { traceId: t.traceId, span: t.span }; e.hops = []; e.hopsTruncated = false; }
+  try { outcome = actor ? perform(e, op, actor, params) : { ok: false, status: 401, code: 'unknown_actor', detail: 'the caller is not on the lab roster' }; } finally { if (e) e.trace = null; }
   const first = { n: 1, label: 'browser to the lab API', request: { method: route.method, url: route.url, headers: { traceparent: formatTraceparent(t.traceId, root), 'x-workspace': ws, 'x-lab-actor': actor ? actor.id : 'unknown' }, body: scrub(params) }, response: { status: outcome.ok ? 200 : outcome.status, body: outcome.ok ? { ok: true } : { error: outcome.code } } };
-  const hops = [first, ...e.hops.map((h, i) => ({ ...h, n: i + 2 }))];
-  const truncated = e.hopsTruncated; e.hops = [];
-  return { outcome, hops, hopsTruncated: truncated, traceparent: formatTraceparent(t.traceId, root), traceId: t.traceId, state: e.snapshot(actor || e.actor(Object.keys(e.s.vault)[0])) };
+  const hops = [first, ...(e ? e.hops : []).map((h, i) => ({ ...h, n: i + 2 }))];
+  const truncated = e ? e.hopsTruncated : false; if (e) e.hops = [];
+  return { outcome, hops, hopsTruncated: truncated, traceparent: formatTraceparent(t.traceId, root), traceId: t.traceId, ...(actor ? { state: e.snapshot(actor) } : {}) };
 }

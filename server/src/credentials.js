@@ -52,9 +52,9 @@ export const DETECTORS = [
   D('passphrase', /\bpassphrase\s*(?:[:=]|\bis\b)\s*[^\s"',;{}]+(?:[ \t]+[^\s"',;{}]+){0,3}/gi),
   // key-aware: a credential word as a key or label, with the quote (if any) between it and the separator, and the value in any quoting.
   // The value stops at a quote, comma, semicolon, brace or space, so two assignments glued together each match on their own.
-  // Credential words: password, passwd, pwd, passphrase, secret, token, api key, private key, access key, account key, credential, session id (a word before them
+  // Credential words: password, passwd, pwd, passphrase, secret, token, api key, private key, access key, account key, secret key (each with a space, hyphen or underscore), cred, credential, passcode, session id (a word before them
   // is allowed, so userPassword and client_secret count), and the short words pw and pass on their own.
-  D('assignment', /(?:[A-Za-z0-9_]{0,30}(?:password|passwd|pwd|passphrase|secret|token|api[_-]?key|apikey|private[_-]?key|access[_-]?key|account[_-]?key|credential|session[_-]?id|sessionid)|\bpw|\bpass)s?["']?\s*(?:[:=]|\bis\b)\s*["']?[^\s"',;{}]{3,}/gi),
+  D('assignment', /(?:[A-Za-z0-9_]{0,30}(?:password|passwd|pwd|passphrase|secret|token|api[_ -]?key|apikey|private[_ -]?key|access[_ -]?key|account[_ -]?key|secret[_ -]?key|cred|credential|passcode|session[_-]?id|sessionid)|\bpw|\bpass)s?["']?\s*(?:[:=]|\bis\b)\s*["']?[^\s"',;{}]{3,}/gi),
   // A long run of key characters. Two detectors, both checked in code rather than with a look-ahead (to stay linear): a run of 20 or more of
   // letters, digits, _ and - that has both a letter and a digit (or is 32 or more and is not just lowercase words joined by hyphens), and a run of 32 or
   // more that also uses + / = (base64) unless it is a lowercase path such as a URL path.
