@@ -144,7 +144,7 @@ test('the no-copy proof is computed: every value the providers hold, in plain, b
   read(e, U1); run(e, 'storeRotate', ADMIN, { ref: AWS });
   run(e, 'storeCreate', ADMIN, { secret: { provider: 'cyberark', path: `${C.castSafe}/typed`, fields: { secret: 'a-value-the-visitor-typed-0001', userName: 'svc-typed-account' } } });
   const p = snap(e, ADMIN).proof;
-  assert.ok(p.valuesChecked >= 20, String(p.valuesChecked)); assert.equal(p.valuesFound, 0); assert.deepEqual(p.encodings, ['plain', 'base64', 'hex']);
+  assert.ok(p.valuesChecked >= 20, String(p.valuesChecked)); assert.equal(p.valuesFound, 0); assert.deepEqual(p.encodings, ['plain', 'json-escaped', 'base64', 'hex']);
   assert.ok(p.areas.length >= 14 && p.areas.every((a) => a.bytes >= 2)); assert.equal(p.bytesScanned, p.areas.reduce((n, a) => n + a.bytes, 0));
   assert.equal(p.selfTest.detected, true);
   const all = e.dump() + JSON.stringify(e.roster.size ? [...e.roster.keys()].map((id) => snap(e, id)) : '') + JSON.stringify(e.s.audit);
@@ -158,7 +158,10 @@ test('the proof is not vacuous: if a value IS copied into the inventory it is fo
     const p = e.noCopyProof(); assert.ok(p.valuesFound >= 1, 'found'); assert.equal(p.found[0].area, 'inventory');
   }
   const e = newEngine(); run(e, 'storeCreate', ADMIN, { secret: { provider: 'aws', path: 'prod/s/short', fields: { value: 'abc12' } } });
-  assert.ok(e.noCopyProof().skippedShort >= 1);
+  const clean = e.noCopyProof(); assert.ok(clean.shortChecked >= 1, 'a short value is matched as a whole field'); assert.equal(clean.valuesFound, 0);
+  e.s.inventory[0].leak = 'abc12'; assert.ok(e.noCopyProof().valuesFound >= 1, 'a short value that equals a whole field is found');
+  e.s.inventory[0].leak = 'a note with abc12 inside it'; assert.equal(e.noCopyProof().valuesFound, 0, 'but not as a substring of ordinary text (that is the point of exact-field matching)');
+  run(e, 'storeCreate', ADMIN, { secret: { provider: 'aws', path: 'prod/s/tiny', fields: { value: 'ab' } } }); assert.ok(e.noCopyProof().skippedTiny >= 1, 'under 4 bytes is skipped and counted');
 });
 
 test('a value that leaks into the AUDIT trail or a sync report is found too (every area is searched)', () => {
@@ -197,4 +200,33 @@ test('typed names, paths, tags and notes: credential-shaped text is refused or m
   assert.equal(code(run(e, 'providerChange', ADMIN, { change: { provider: 'aws', op: 'create', path: tok } })), 'bad_path');
   const id = run(e, 'vaultCreate', U1, { entry: { name: 'ok', targetId: C.castT1, shape: 'bearer', generate: true, notes: `my ${['pass', 'word'].join('')} is hunter2xyz and ${tok}` } }).result.entryId;
   const notes = e.vaultGet(e.roster.get(U1), id).notes; assert.ok(!notes.includes('hunter2xyz') && !notes.includes(tok)); assert.match(notes, /\[masked:/);
+});
+
+test('S3: a provider value containing a quote, a backslash, a tab or a newline is found when it leaks, in the JSON-escaped form too (plain, JSON-escaped, base64, hex, and a partial slice of a long value that contains its start, middle or end 63 characters)', async () => {
+  for (const value of ['has"quote-and\\back-1234567', 'tab\tand\nnewline-value-12345', 'unicode-\u00fc\u6f22\u5b57-value-12345', 'plain-value-with-no-specials-1234567']) {
+    for (const plant of [(v) => v, (v) => Buffer.from(v).toString('base64'), (v) => Buffer.from(v).toString('hex')]) {
+      const e = newEngine(); assert.equal(run(e, 'storeCreate', U1, { secret: { provider: 'azure', path: `${C.castKv}/hard`, fields: { value } } }).ok, true);
+      e.s.audit.push({ id: 'x', at: '', actor: 'system', role: 'system', domain: 'x', action: 'x', resource: plant(value), outcome: 'allowed' });
+      assert.ok(e.noCopyProof().valuesFound >= 1, `${JSON.stringify(value)} planted as ${plant.toString().slice(0, 30)}`);
+    }
+  }
+  const long = 'L'.repeat(70) + 'MIDDLE-MARKER-0123456789-' + 'R'.repeat(70) + 'END-MARKER-0123456789';
+  const { probesOf } = await import('../src/proof.js'); const [p0, p1, p2] = probesOf(long);
+  assert.equal(probesOf(long).length, 3);
+  for (const slice of [long.slice(0, 90), long.slice(p1.offset - 5, p1.offset + 75), long.slice(-90), long.slice(p2.offset)]) {
+    const e = newEngine(); assert.equal(run(e, 'storeCreate', ADMIN, { secret: { provider: 'aws', path: 'prod/long/one', fields: { value: long } } }).ok, true);
+    e.s.audit.push({ id: 'x', at: '', actor: 'system', role: 'system', domain: 'x', action: 'x', resource: slice, outcome: 'allowed' });
+    assert.ok(e.noCopyProof().valuesFound >= 1, 'a partial leak of a long value is found');
+  }
+});
+
+test('S3: the self-test is computed from the real scans (hard canaries incl. quotes, backslashes, non-ASCII, newline and a short value) and a broken scanner makes it fail', async () => {
+  const { selfTest, scanText, leafScan } = await import('../src/proof.js');
+  const ok = selfTest(); assert.equal(ok.detected, true); assert.equal(ok.planted, 7); assert.equal(ok.found, 7); assert.equal(ok.falsePositives, 0);
+  const blind = selfTest(function* () { /* finds nothing */ }, leafScan); assert.equal(blind.detected, false); assert.ok(blind.found < 7);
+  const noJson = selfTest(function* (text, index, area, found) { yield* scanText(text.replace(/\\"/g, '"'), index, area, found); }, leafScan);
+  assert.equal(noJson.detected, false, 'a scanner that misses the JSON-escaped form is caught by the self-test');
+  const jumpy = selfTest(scanText, function* (root, index, area, found) { found.push({ label: 'canary 9', area, kind: 'plain' }); yield* leafScan(root, index, area, found); });
+  assert.ok(jumpy.found >= 0);
+  const e = newEngine(); assert.equal(e.proofSync({}).selfTest.detected, true);
 });

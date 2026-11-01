@@ -1,7 +1,7 @@
 // The glue between the HTTP layer and the engine: Mock reads tables, Live drives the workspace's engine. Every action gets one W3C
 // trace and a list of hops (the raw request and response panes), with anything credential-shaped masked.
 import { Engine } from './engine.js';
-import { perform } from './actions.js';
+import { perform, KEYS } from './actions.js';
 import { cleanFree } from './credentials.js';
 import { newTrace, formatTraceparent } from './trace.js';
 
@@ -10,11 +10,20 @@ const SECRET_KEYS = new Set(['secret', 'fields', 'value', 'values']);
 
 // A copy of the visitor's parameters that is safe to show: strings cleaned and masked, anything under a secret-carrying key replaced by a
 // write-only marker. Iterative-ish and depth-limited.
+// The key names the lab knows. A key that is not on this list is NEVER shown (it could be a credential): the pane says "(unrecognised key N)" instead, at every depth.
+const KNOWN = new Set([...Object.values(KEYS).flat(), ...Object.keys(KEYS), 'id', 'mode', 'vertical']);
+
+// A copy of the visitor's parameters that is safe to show: strings cleaned and masked, key names shown only when allow-listed, anything under a
+// secret-carrying key replaced by a write-only marker. Depth- and width-limited.
 export function scrub(value, depth = 0, secret = false) {
   if (secret) return typeof value === 'string' ? `(write-only, ${Buffer.byteLength(value)} bytes)` : isObj(value) || Array.isArray(value) ? '(write-only)' : typeof value === 'number' || typeof value === 'boolean' || value === null ? value : undefined;
   if (typeof value === 'string') return cleanFree(value, 300);
   if (Array.isArray(value)) return depth > 4 ? [] : value.slice(0, 10).map((v) => scrub(v, depth + 1));
-  if (isObj(value)) return depth > 4 ? {} : Object.fromEntries(Object.keys(value).slice(0, 20).map((k) => { const ck = cleanFree(k, 40); return [ck, scrub(value[k], depth + 1, SECRET_KEYS.has(k))]; }));
+  if (isObj(value)) {
+    if (depth > 4) return {};
+    let unknown = 0;
+    return Object.fromEntries(Object.keys(value).slice(0, 20).map((k) => [KNOWN.has(k) ? k : `(unrecognised key ${++unknown})`, scrub(value[k], depth + 1, SECRET_KEYS.has(k))]));
+  }
   return typeof value === 'number' || typeof value === 'boolean' || value === null ? value : undefined;
 }
 
@@ -43,5 +52,5 @@ export function runAction({ ws, workspaces, vertical, cast, op, actorId, params,
   const first = { n: 1, label: 'browser to the lab API', request: { method: route.method, url: route.url, headers: { traceparent: formatTraceparent(t.traceId, root), 'x-workspace': ws, 'x-lab-actor': actor ? actor.id : 'unknown' }, body: scrub(params) }, response: { status: outcome.ok ? 200 : outcome.status, body: outcome.ok ? { ok: true } : { error: outcome.code } } };
   const hops = [first, ...e.hops.map((h, i) => ({ ...h, n: i + 2 }))];
   const truncated = e.hopsTruncated; e.hops = [];
-  return { outcome, hops, hopsTruncated: truncated, traceparent: formatTraceparent(t.traceId, root), traceId: t.traceId, state: e.snapshot(actor || e.actor(Object.keys(e.s.vault)[0]), { fullProof: false }) };
+  return { outcome, hops, hopsTruncated: truncated, traceparent: formatTraceparent(t.traceId, root), traceId: t.traceId, state: e.snapshot(actor || e.actor(Object.keys(e.s.vault)[0])) };
 }

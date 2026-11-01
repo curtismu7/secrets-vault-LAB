@@ -11,6 +11,7 @@ import { formatTraceparent } from './trace.js';
 import { aadFor, CONFIGURED, KEY_PROVIDERS, makeKeyMaterial, NONCE_BYTES, openBytes, resolveKey, sealBytes, SealError } from './crypto.js';
 import { headersFor, headerNameProblem, maskedHeader, SHAPES, SimBackend } from './gateway.js';
 import { allowed, defaultGrants, POLICY_MAX, scopeMatches, scopeProblem, ACTIONS } from './policy.js';
+import { buildIndex, drain, leafScan, scanText, selfTest, WINDOW } from './proof.js';
 import { callShape, mockValue, PATH_MAX, PROVIDER_IDS, PROVIDERS, SEGMENT, seedProviders, DELINEA_TEMPLATES } from './stores.js';
 
 export const MIN = 60_000; export const HOUR = 60 * MIN; export const DAY = 24 * HOUR;
@@ -20,7 +21,7 @@ export const NIGHTLY_HOUR_UTC = 2; // lab-invented: when connected stores re-syn
 export const ADVANCE_MAX_MIN = 10080;
 export const LIMITS = {
   entriesPerUser: 500, credentialBytes: 65536, targets: 20, audit: 2000, backendLog: 300, gatewayLog: 300, inventory: 400, policies: POLICY_MAX, reports: 30, hops: 40,
-  name: 80, notes: 200, tags: 5, headers: 5, deliveries: 100, probeBytes: 12,
+  name: 80, notes: 200, tags: 5, headers: 5, deliveries: 100, proofQuickUnits: 600, workspaceSecretBytes: 4 * 1024 * 1024,
 };
 const CONSUMERS = ['simulated-gateway', 'simulated-agent-tool'];
 const PROTOCOLS = ['mcp', 'a2a'];
@@ -60,6 +61,7 @@ export class Engine {
     this.#shared = {}; this.#connections = {};
     this.consumers = Object.fromEntries(CONSUMERS.map((c) => [c, { key: rand(32), last: null }]));
     this.s = this.fresh();
+    this.version = 0; this.proofCache = null; this.proofJob = null; this.proofSlices = 0;
     this.seedTargets();
     this.seedConnections();
     this.seedInventory();
@@ -85,6 +87,7 @@ export class Engine {
   need(actor) { if (!actor || !this.actor(actor.id)) throw refuse('unknown_actor', 'the caller is not on the lab roster', 401); return this.roster.get(actor.id); }
   requireRole(actor, role) { if (actor.role !== role) throw refuse('forbidden_role', `this action is for the ${role} role`, 403); }
   audit(actor, domain, action, resource, outcome, code = '') {
+    this.version += 1;
     this.s.audit.push({ id: `aud-${String(++this.s.seq.audit).padStart(5, '0')}`, at: iso(this.now()), actor: actor === 'system' ? 'system' : actor === 'provider-console' ? 'provider-console' : actor.id, role: typeof actor === 'string' ? actor : actor.role, domain, action, resource, outcome, ...(code ? { code } : {}) });
   }
   room(n = 6) { if (this.s.audit.length + n > LIMITS.audit) throw refuse('workspace_full', 'the audit trail of this workspace is full: Reset to start again', 409); }
@@ -179,6 +182,7 @@ export class Engine {
       ...(e.status === 'staged-delete' ? { stagedAt: iso(e.stagedAt), purgeAt: iso(e.purgeAt), purgesInMin: Math.max(0, Math.ceil((e.purgeAt - now) / MIN)) } : {}),
     };
   }
+  sealedTotal() { return Object.values(this.s.vault).reduce((n, l) => n + l.reduce((m, e) => m + e.secretBytes, 0), 0); }
   vaultList(actor) { const a = this.need(actor); return this.mine(a).map((e) => this.entryView(e)); }
   vaultGet(actor, id) { const a = this.need(actor); return this.entryView(this.entryOf(a, id)); }
 
@@ -232,6 +236,7 @@ export class Engine {
     if ((input.secret === undefined) === (input.generate !== true)) throw refuse('bad_secret', 'give a secret, or ask for a generated mock credential (generate: true), not both and not neither');
     const payload = input.generate === true ? this.payloadFor(input.shape, a.id, undefined) : input.secret;
     this.checkFinal(input.shape, payload);
+    if (this.sealedTotal() + this.secretBytesOf(input.shape, payload) > LIMITS.workspaceSecretBytes) throw refuse('workspace_secret_bytes_full', 'this workspace holds at most 4 MB of sealed credentials (a lab safety limit, not a deck claim): delete and purge some, or Reset', 409);
     const id = `vcr-${String(++this.s.seq.entry).padStart(4, '0')}`;
     const e = { id, owner: a.id, name, targetId: t.id, shape: input.shape, ...(headerName ? { headerName } : {}), ...(input.shape === 'headers' ? { headerNames: this.headerNamesOf('headers', payload) } : {}), notes, status: 'active', createdAt: this.now(), updatedAt: this.now(), secretChangedAt: this.now(), version: 1, secretBytes: this.secretBytesOf(input.shape, payload), sealed: this.seal(a.id, id, payload) };
     l.push(e); this.s.counters.sealed += 1;
@@ -262,6 +267,7 @@ export class Engine {
       this.checkPayload(shape, patch.secret, { partial: !shapeChanged });
       payload = shapeChanged ? patch.secret : this.mergePayload(shape, this.open(a.id, e), patch.secret);
       this.checkFinal(shape, payload);
+      if (this.sealedTotal() - e.secretBytes + this.secretBytesOf(shape, payload) > LIMITS.workspaceSecretBytes) throw refuse('workspace_secret_bytes_full', 'this workspace holds at most 4 MB of sealed credentials (a lab safety limit, not a deck claim): delete and purge some, or Reset', 409);
       if (!this.backend.hasRoom()) throw refuse('workspace_full', 'the backend registry is full: Reset to start again', 409);
     }
     // all checks passed: commit
@@ -455,15 +461,26 @@ export class Engine {
     if (!fields) throw refuse('not_found_at_provider', 'the provider no longer has this secret, so re-synchronise the inventory', 409);
     this.providerHop(row.provider, 'read', row.path, conn, { status: 200, body: { fields: Object.keys(fields), values: 'returned to the gateway only, never to this API' } });
     const total = Object.values(fields).reduce((n, f) => n + bytes(f.value), 0);
-    const digest = createHmac('sha256', this.consumers[consumer].key).update(JSON.stringify(fields)).digest('hex');
-    this.consumers[consumer].last = { ref: row.ref, bytes: total, digest };
-    const matches = createHmac('sha256', this.consumers[consumer].key).update(JSON.stringify(conn.p.read(row.pid))).digest('hex') === digest;
+    this.consumers[consumer].last = { ref: row.ref, provider: row.provider, pid: row.pid, bytes: total, at: iso(this.now()), digest: this.consumerDigest(consumer, fields) };
     if (this.s.deliveries.length >= LIMITS.deliveries) this.s.deliveries.shift();
     const n = ++this.s.seq.delivery;
     this.s.deliveries.push({ n, at: iso(this.now()), actor: a.id, ref: row.ref, consumer, bytes: total, fields: Object.keys(fields) });
-    this.hop(`${consumer} (simulated)`, { method: 'DELIVER', url: `consumer://${consumer}`, body: { ref: row.ref, value: `${MASK} (${total} bytes)` } }, { status: 200, body: { received: true, matchesProviderNow: matches } });
+    this.hop(`${consumer} (simulated)`, { method: 'DELIVER', url: `consumer://${consumer}`, body: { ref: row.ref, value: `${MASK} (${total} bytes)` } }, { status: 200, body: { received: true, bytes: total } });
     this.audit(a, 'store', 'store.read', row.ref, 'allowed', consumer);
-    return { delivered: true, consumer, ref: row.ref, bytes: total, matchesProviderNow: matches, fields: Object.entries(fields).map(([name, f]) => ({ name, type: f.type, bytes: bytes(f.value), shown: MASK })), note: 'value delivered to the consumer (masked)' };
+    return { delivered: true, consumer, ref: row.ref, bytes: total, fields: Object.entries(fields).map(([name, f]) => ({ name, type: f.type, bytes: bytes(f.value), shown: MASK })), note: 'value delivered to the consumer (masked)' };
+  }
+
+  consumerDigest(consumer, fields) { return createHmac('sha256', this.consumers[consumer].key).update(JSON.stringify(fields)).digest('hex'); }
+  // What each simulated consumer last received, compared NOW against a fresh read of the provider (a rotation or an edit made since makes it stale). Never a constant.
+  consumerStates() {
+    return CONSUMERS.map((name) => {
+      const last = this.consumers[name].last;
+      if (!last) return { name, last: null, currentWithProvider: null, reason: 'nothing delivered yet' };
+      const fresh = this.#providers[last.provider].read(last.pid);
+      if (!fresh) return { name, last: { ref: last.ref, bytes: last.bytes, at: last.at }, currentWithProvider: null, reason: 'the secret is gone or soft-deleted at the provider' };
+      const same = this.consumerDigest(name, fresh) === last.digest;
+      return { name, last: { ref: last.ref, bytes: last.bytes, at: last.at }, currentWithProvider: same, reason: same ? 'what the consumer holds equals a fresh read of the provider' : 'the provider value changed after the delivery: the consumer holds an old copy' };
+    });
   }
 
   storeUpdate(actorIn, { ref, fields, tags } = {}) {
@@ -582,7 +599,7 @@ export class Engine {
         this.s.inventory.push(this.invRow(id, m)); items.push({ provider: id, change: 'new', ref: `${id}:${m.path}` }); c.new += 1;
       }
     }
-    const proof = this.noCopyProof(false, { scope: 'stores' });
+    const proof = this.proofSync({ scope: 'stores', withSnapshots: false });
     const report = { id: `sync-${String(++this.s.seq.report).padStart(4, '0')}`, at: iso(atMs), kind, byProvider: by, items: items.slice(0, 200), itemsTotal: items.length, skippedFull, valuesFoundInInventoryAfter: proof.valuesFound };
     this.s.reports.push(report); if (this.s.reports.length > LIMITS.reports) this.s.reports.shift();
     this.hop('re-sync: metadata only from every provider', { method: 'LIST', url: 'providers://*/secrets?metadata=only' }, { status: 200, body: { changes: items.length, valuesRequested: 0 } });
@@ -613,33 +630,65 @@ export class Engine {
   }
 
   // ---- the no-copy proof ---------------------------------------------------------------------------------------------------------------------------
-  // Serialises everything the Privilege side keeps (inventory, grants, audit, reports, deliveries, sealed vault values, sealed connections, and the
-  // state every roster member would be shown) and searches it for every value the providers hold (all versions, plain, base64 and hex), every
-  // provider connection credential, and every vault plaintext. A canary self-test proves the search can find a value. Computed now, never stored.
-  // scope 'stores' searches only for provider values and connections (used by the re-sync report); 'all' adds every vault plaintext and the state shown to
-  // each person. A very large workspace can be too slow to search on every write, so a write may ask for a budget: over it, the answer says SKIPPED
-  // (never a made-up pass) and the next state read computes it in full.
-  noCopyProof(withSnapshots = true, { scope = 'all', budget = Infinity } = {}) {
-    if (scope === 'all' && budget !== Infinity && Object.values(this.s.vault).reduce((n, l) => n + l.length, 0) > 60) return { skipped: true, reason: 'this workspace holds more than 60 vault entries: the search is skipped on writes and runs in full when the state is read', valuesChecked: 0, bytesScanned: 0 };
-    const needles = [];
-    const add = (label, v) => { if (typeof v === 'string' && bytes(v) >= LIMITS.probeBytes) needles.push([label, v]); else if (typeof v === 'string') needles.skipped = (needles.skipped || 0) + 1; };
+  // Serialises everything the Privilege side keeps (inventory, grants, audit, reports, deliveries, sealed vault values with their ciphertext bodies counted
+  // but not searched, sealed connections, the logs, and the state every roster member would be shown) and searches it for every value the providers hold
+  // (all versions), every provider connection credential, every vault plaintext and the shared service accounts (see proof.js for the forms and the method).
+  // It is a generator that yields at checkpoints: proofSync drains it at once (small workspaces, tests, the re-sync report), proofAsync runs it in slices of a
+  // few milliseconds so a large workspace never holds the event loop. A result is cached against the state version; a stale cache is never shown as current.
+  sealedView() {
+    const out = {};
+    for (const [u, list] of Object.entries(this.s.vault)) out[u] = list.map((e) => ({ ...e, sealed: { n: e.sealed.n, ct: `[${e.sealed.ct.length} base64 characters of AES-GCM output, counted not searched]`, t: e.sealed.t } }));
+    return out;
+  }
+  *proofGen({ scope = 'all', withSnapshots = true } = {}) {
+    const values = [];
+    const add = (label, v) => { if (typeof v === 'string') values.push({ label, value: v }); };
+    const creds = (p) => [p.token, p.key, p.username, p.password, ...(p.headers ? Object.values(p.headers) : [])];
     for (const id of PROVIDER_IDS) for (const v of this.#providers[id].allValues()) add('store value', v);
-    for (const id of PROVIDER_IDS) { try { add('provider connection', openBytes(this.#keys.key, this.s.connections[id].sealed, `svl1|provider-credential|${id}`).toString('utf8')); } catch { /* counted below */ } }
-    if (scope === 'all') for (const [user, list] of Object.entries(this.s.vault)) for (const e of list) { try { const p = JSON.parse(openBytes(this.#keys.key, e.sealed, aadFor(user, e.id)).toString('utf8')); for (const v of [p.token, p.key, p.username, p.password, ...(p.headers ? Object.values(p.headers) : [])]) add('vault credential', v); } catch { /* integrity failures are reported by the vault */ } }
-    if (scope === 'all') for (const t of Object.values(this.#shared)) for (const v of [t.token, t.key, t.username, t.password, ...(t.headers ? Object.values(t.headers) : [])]) add('shared service account', v);
-    const areas = { inventory: this.s.inventory, grants: this.s.policies, audit: this.s.audit, 'sync reports': this.s.reports, deliveries: this.s.deliveries, 'sealed vault values': this.s.vault, 'sealed connections': this.s.connections, 'gateway log': this.s.gatewayLog, 'backend log': this.backend.log };
-    if (withSnapshots) for (const p of this.roster.values()) areas[`state shown to ${p.id} (${p.role})`] = this.snapshotCore(p);
-    const text = Object.fromEntries(Object.entries(areas).map(([k, v]) => [k, JSON.stringify(v)]));
-    const total = Object.values(text).reduce((n, t) => n + t.length, 0);
-    if (needles.length * total > budget) return { skipped: true, reason: 'this workspace is large: the search is skipped on writes and runs in full when the state is read', valuesChecked: needles.length, bytesScanned: total };
-    const variants = (v) => [v, Buffer.from(v, 'utf8').toString('base64'), Buffer.from(v, 'utf8').toString('hex')];
-    const found = [];
-    for (const [label, v] of needles) for (const form of variants(v)) for (const [area, t] of Object.entries(text)) if (t.includes(form)) found.push({ label, area });
-    // self-test: the same search must find a planted copy, or the zero above would mean nothing
-    const canary = needles.find(([, v]) => v);
-    const planted = canary ? JSON.stringify({ ...areas.inventory[0], leaked: canary[1] }) : '';
-    const selfTest = canary ? { detected: variants(canary[1]).some((f) => planted.includes(f)), howTested: 'a copy of one inventory row with one stored value planted in it' } : { detected: false, howTested: 'no value of 12 bytes or more to plant' };
-    return { valuesChecked: needles.length, skippedShort: needles.skipped || 0, valuesFound: found.length, found: found.slice(0, 20), areas: Object.entries(text).map(([name, t]) => ({ name, bytes: t.length })), bytesScanned: Object.values(text).reduce((n, t) => n + t.length, 0), encodings: ['plain', 'base64', 'hex'], selfTest, minBytes: LIMITS.probeBytes };
+    for (const id of PROVIDER_IDS) { try { add('provider connection', openBytes(this.#keys.key, this.s.connections[id].sealed, `svl1|provider-credential|${id}`).toString('utf8')); } catch { /* the connection fails closed elsewhere */ } }
+    yield;
+    if (scope === 'all') {
+      let n = 0;
+      for (const [user, list] of Object.entries(this.s.vault)) for (const e of list) { try { for (const v of creds(JSON.parse(openBytes(this.#keys.key, e.sealed, aadFor(user, e.id)).toString('utf8')))) add('vault credential', v); } catch { /* integrity failures are reported by the vault */ } if (++n % 8 === 0) yield; }
+      for (const t of Object.values(this.#shared)) for (const v of creds(t)) add('shared service account', v);
+    }
+    const areas = { inventory: this.s.inventory, grants: this.s.policies, audit: this.s.audit, 'sync reports': this.s.reports, deliveries: this.s.deliveries, 'sealed vault values': this.sealedView(), 'sealed connections': this.s.connections, 'gateway log': this.s.gatewayLog, 'backend log': this.backend.log };
+    yield;
+    if (withSnapshots) for (const p of this.roster.values()) { areas[`state shown to ${p.id} (${p.role})`] = this.snapshotCore(p); yield; }
+    const index = buildIndex(values);
+    const found = []; const sizes = [];
+    for (const [area, obj] of Object.entries(areas)) {
+      const text = JSON.stringify(obj); sizes.push({ name: area, bytes: text.length });
+      yield* scanText(text, index, area, found); yield* leafScan(obj, index, area, found); yield;
+    }
+    const uniq = [...new Map(found.map((f) => [`${f.label}|${f.area}|${f.kind}`, f])).values()];
+    return { valuesChecked: index.checked, shortChecked: index.shortChecked, skippedTiny: index.skippedTiny, valuesFound: uniq.length, found: uniq.slice(0, 20), areas: sizes, bytesScanned: sizes.reduce((n, a) => n + a.bytes, 0), encodings: ['plain', 'json-escaped', 'base64', 'hex'], windowChars: WINDOW, selfTest: selfTest(), computedAtVersion: this.version, clock: iso(this.now()) };
+  }
+  proofSync(opts) { return drain(this.proofGen(opts)); }
+  noCopyProof(withSnapshots = true, { scope = 'all' } = {}) { return this.proofSync({ scope, withSnapshots }); }
+  // Time-sliced: yields to the event loop whenever `sliceMs` has passed (0 = at every checkpoint). One run at a time per engine; `onSlice` counts the yields.
+  proofAsync({ sliceMs = 8, onSlice = null } = {}) {
+    if (this.proofJob) return this.proofJob;
+    const version = this.version;
+    this.proofJob = (async () => {
+      try {
+        const gen = this.proofGen({}); let t0 = performance.now();
+        for (;;) {
+          const r = gen.next();
+          if (r.done) { const result = r.value; if (version === this.version) this.proofCache = { version, result }; return version === this.version ? result : { ...result, stale: true }; }
+          if (performance.now() - t0 >= sliceMs) { this.proofSlices += 1; if (onSlice) onSlice(); await new Promise((res) => setImmediate(res)); t0 = performance.now(); }
+        }
+      } finally { this.proofJob = null; }
+    })();
+    return this.proofJob;
+  }
+  // What a state read shows: the cached proof when it is current, a quick computation for a small workspace, else an honest "run it" placeholder (never a pass).
+  proofView() {
+    const c = this.proofCache;
+    if (c && c.version === this.version) return c.result;
+    const units = Object.values(this.s.vault).reduce((n, l) => n + l.length, 0) * 6 + this.s.inventory.length + Math.ceil(this.s.audit.length / 2) + this.s.reports.length * 2;
+    if (units <= LIMITS.proofQuickUnits) { const result = this.proofSync({}); this.proofCache = { version: this.version, result }; return result; }
+    return { skipped: true, reason: 'this workspace is large, so the search is not run on every read or write: press "Run the proof now" (it runs in short slices and never blocks the lab)', units, last: c ? { valuesFound: c.result.valuesFound, valuesChecked: c.result.valuesChecked, version: c.version, current: false } : null };
   }
 
   // ---- views ------------------------------------------------------------------------------------------------------------------------------------
@@ -669,11 +718,11 @@ export class Engine {
       governance: {
         policies: this.s.policies.filter((g) => all || g.principal === a.id), policiesTotal: this.s.policies.length, canEditPolicy: a.role === 'admin',
         audit: this.s.audit.filter((x) => all || x.actor === a.id).slice(-60).reverse(), auditTotal: this.s.audit.length, canSeeAllAudit: all,
-        reports: this.s.reports.slice(-8).reverse(), deliveries: this.s.deliveries.filter((d) => all || d.actor === a.id).slice(-10).reverse(), consumers: CONSUMERS,
+        consumerStates: this.consumerStates(), reports: this.s.reports.slice(-8).reverse(), deliveries: this.s.deliveries.filter((d) => all || d.actor === a.id).slice(-10).reverse(), consumers: CONSUMERS,
       },
     };
   }
-  snapshot(actorIn, { fullProof = true } = {}) { const s = this.snapshotCore(actorIn); return { ...s, proof: this.noCopyProof(true, fullProof ? {} : { budget: 100_000_000 }) }; }
+  snapshot(actorIn) { const s = this.snapshotCore(actorIn); return { ...s, proof: this.proofView() }; }
 
   // Everything the Privilege side holds, for tests that search it. Never holds a plaintext value; the providers' own stores are NOT in it.
   dump() { return JSON.stringify({ s: this.s, backendLog: this.backend.log }); }

@@ -127,7 +127,7 @@ test('the provider connection credential is sealed at rest, never returned, and 
 test('a read delivers the value to a simulated consumer only: the answer is masked, sized, and says it matches the provider now', () => {
   const e = newEngine();
   const r = run(e, 'storeRead', U1, { read: { ref: AWS, consumer: 'simulated-agent-tool' } }).result;
-  assert.equal(r.delivered, true); assert.equal(r.note, 'value delivered to the consumer (masked)'); assert.equal(r.matchesProviderNow, true);
+  assert.equal(r.delivered, true); assert.equal(r.note, 'value delivered to the consumer (masked)'); assert.ok(!('matchesProviderNow' in r), 'the read does not claim a comparison it did not make');
   assert.deepEqual(r.fields.map((f) => f.shown), ['•'.repeat(8)]); assert.equal(r.bytes, 'MOCK-aws-'.length + 24);
   for (const v of e.providerValues()) assert.ok(!JSON.stringify(r).includes(v));
   assert.equal(code(run(e, 'storeRead', U1, { read: { ref: AWS, consumer: 'anywhere' } })), 'bad_consumer');

@@ -142,6 +142,24 @@ export function createApp({ health = createHealth(), configFile = CONFIG, worksp
   write('post', '/policies/:id/revoke', { op: 'revoke', keys: [], params: (req) => ({ id: idParam(req) }) });
   write('post', '/clock', { op: 'advance', keys: ['clock'], params: (req) => ({ clock: o(req.body.clock) }) });
 
+  // The no-copy proof on demand, in short slices (it yields to the event loop every few milliseconds, so a large workspace never blocks health or anyone else).
+  api.post('/proof/run', async (req, res, next) => {
+    try {
+      const id = ws(req, res); if (!id) return;
+      noStore(res);
+      if (!isObj(req.body)) return res.status(400).json({ error: 'bad_request' });
+      const mode = modeOf(req.body.mode);
+      if (!mode) return res.status(400).json({ error: 'bad_mode', detail: 'mode must be mock or live' });
+      if (mode === 'mock') return res.status(409).json({ error: 'mock_is_read_only', detail: 'Mock mode only reads tables: switch to Live to run it' });
+      if (!Object.keys(req.body).every((k) => ['mode', 'vertical'].includes(k))) return res.status(400).json({ error: 'unknown_field', detail: 'the body carries a field the lab does not take' });
+      if (!verticalOk(req, res)) return;
+      const e = workspaces.engine(id, verticalOf(req), castFor(req));
+      if (!e) return res.status(503).json({ error: 'workspace_cap', detail: 'too many workspaces on this lab: try again later' });
+      if (!e.actor(actorId(req))) return res.status(401).json({ error: actorId(req) === null ? 'actor_required' : 'unknown_actor' });
+      return res.json({ ok: true, proof: await e.proofAsync() });
+    } catch (err) { return next(err); }
+  });
+
   // Reset clears this workspace's engines (vault, inventory, providers, audit, the clock) and nothing else.
   api.post('/reset', (req, res) => { const id = ws(req, res); if (!id) return; noStore(res); workspaces.reset(id); return res.json({ reset: 'ok', workspace: id }); });
   api.use((_req, res) => res.status(404).json({ error: 'not_found' }));
