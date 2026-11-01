@@ -11,7 +11,7 @@ export default function ClockBar({ state, lab }) {
       <div className="seg" role="group" aria-label="Move the lab clock forward">
         {MOVES.map(([label, m]) => <button key={m} type="button" disabled={off} onClick={() => lab.act("POST", "/api/clock", { clock: { minutes: m } })} data-testid={`clock-${m}`}>+{label}</button>)}
       </div>
-      <p className="muted">{lab.readOnly ? "Mock tables are recorded: switch to Live to move the clock." : "The clock only moves forward. A staged deletion purges at exactly 24 hours; connected stores re-synchronise each time it crosses 02:00."}</p>
+      <p className="muted">{lab.readOnly ? "Mock tables are recorded: switch to Live to move the clock." : "A lab control, not a product action: it moves time for everyone in this workspace and is audited under whoever presses it. It only moves forward. A staged deletion purges at exactly 24 hours; connected stores re-synchronise each time it crosses 02:00."}</p>
     </section>
   );
 }

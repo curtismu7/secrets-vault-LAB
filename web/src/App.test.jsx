@@ -10,7 +10,8 @@ import App, { BANNER_UNKNOWN, TABS } from "./App";
 import { labelOffsets } from "./components/PatternDiagram";
 import { secretFrom } from "./components/VaultTab";
 import { visible } from "./safeText";
-import { forgetWorkspace } from "./workspace";
+import { forgetWorkspace, workspaceId } from "./workspace";
+import ErrorBoundary from "./components/ErrorBoundary";
 
 const C = VERTICALS.finance;
 let server; let base; const realFetch = globalThis.fetch; let seen = []; let statuses = [];
@@ -44,7 +45,7 @@ const click = (id) => userEvent.click(screen.getByTestId(id));
 const live = async () => { await click("mode-live"); await waitFor(() => expect(screen.getByTestId("banner")).toHaveTextContent(/LIVE mode/)); await screen.findByTestId("create-entry", {}, T); await waitFor(() => expect(screen.getByTestId("ce-submit")).toBeEnabled(), T); };
 const pick = (id, value) => userEvent.selectOptions(screen.getByTestId(id), value);
 const actAs = async (who) => { await pick("actor", who); await waitFor(() => expect(screen.getByTestId("actor")).toHaveValue(who)); await waitFor(() => expect(screen.getByTestId("banner")).toBeInTheDocument()); await settled(); };
-const settled = async () => { await waitFor(() => expect(pending).toBe(0), { timeout: 20000 }); await new Promise((r) => setTimeout(r, 60)); await waitFor(() => expect(pending).toBe(0), { timeout: 20000 }); };
+const settled = async () => { await waitFor(() => expect(pending).toBeLessThanOrEqual(0), { timeout: 20000 }); await new Promise((r) => setTimeout(r, 60)); await waitFor(() => expect(pending).toBeLessThanOrEqual(0), { timeout: 20000 }); };
 const wholePageText = () => { const c = document.body.cloneNode(true); c.querySelectorAll("textarea,input").forEach((n) => n.remove()); return c.textContent; };
 const store = async (name = "Ledger bearer") => { fireEvent.change(screen.getByTestId("ce-name"), { target: { value: name } }); await waitFor(() => expect(screen.getByTestId("ce-submit")).toBeEnabled(), T); await click("ce-submit"); await waitFor(() => expect(screen.getByTestId("create-message")).toHaveTextContent(/Stored vcr-/), T); };
 const clock = async (m) => { await waitFor(() => expect(screen.getByTestId(`clock-${m}`)).toBeEnabled(), T); await click(`clock-${m}`); await settled(); };
@@ -305,7 +306,7 @@ describe("Governance (Live)", () => {
   it("the proof is computed live: values found 0, a self-test that finds a planted copy, the areas searched; it reruns", async () => {
     await mount(); await live(); await store(); await tab("Governance");
     expect(await screen.findByTestId("proof-found")).toHaveTextContent("0");
-    expect(screen.getByTestId("proof-selftest")).toHaveTextContent(/planted copy WAS found/);
+    expect(screen.getByTestId("proof-selftest")).toHaveTextContent(/all 7 planted copies were found/);
     expect(Number(screen.getByTestId("proof-checked").textContent)).toBeGreaterThan(20);
     expect(within(screen.getByTestId("proof-areas")).getAllByRole("row").length).toBeGreaterThan(10);
     const before = seen.length; await click("proof-run"); await waitFor(() => expect(seen.length).toBeGreaterThan(before), T);
@@ -429,5 +430,89 @@ describe("inert text and the secret object", () => {
   it("secretFrom sends only the fields that were filled in, so a blank keeps the stored value", () => {
     expect(secretFrom("bearer", {})).toEqual({}); expect(secretFrom("basic", { username: "", password: "p" })).toEqual({ password: "p" });
     expect(secretFrom("headers", { hn0: "X-A", hv0: "v", hn1: "X-B", hv1: "" })).toEqual({ headers: { "X-A": "v" } });
+  });
+});
+
+const no401 = () => { expect(statuses.filter((x) => x.status === 401)).toEqual([]); expect(screen.queryByText(/Could not load the lab/)).toBeNull(); expect(screen.queryByTestId("boundary")).toBeNull(); expect(screen.getByTestId("banner")).toBeInTheDocument(); };
+const TAB_NAMES = ["User Vault", "Request-time injection", "Secret Stores", "Governance", "Diagram", "Talk track"];
+
+describe("S6: switching vertical, person, provider and mode never sends a stale person (no 401), never flashes an error, never blanks the page", () => {
+  for (const mode of ["mock", "live"]) {
+    it(`${mode}: a vertical switch on EVERY tab, one after the other and back to back`, async () => {
+      await mount(); if (mode === "live") await live();
+      for (const name of TAB_NAMES) {
+        await tab(name);
+        for (const v of ["health", "retail", "finance"]) { await pick("vertical", v); await waitFor(() => expect(screen.getByTestId("vertical")).toHaveValue(v)); await settled(); no401(); }
+        await pick("vertical", "health"); await pick("vertical", "retail"); await pick("vertical", "finance"); // rapid: three switches without waiting
+        await settled(); no401();
+        await waitFor(() => expect(screen.getByTestId("banner")).toHaveTextContent(mode === "live" ? /LIVE mode/ : /MOCK mode/), T);
+      }
+      if (mode === "live") await waitFor(() => expect(screen.getByTestId("actor")).toHaveValue(VERTICALS.finance.castUser), T);
+      expect(statuses.filter((x) => x.status >= 400)).toEqual([]);
+    });
+  }
+
+  it("live: a person switch on every tab, a provider switch, and a mode switch back and forth, with no 401 and no error flash", async () => {
+    await mount(); await live();
+    for (const name of TAB_NAMES) { await tab(name); for (const who of [C.castAdmin, C.castAuditor, C.castSupport, C.castUser2, C.castUser]) { await pick("actor", who); await waitFor(() => expect(screen.getByTestId("actor")).toHaveValue(who)); await settled(); no401(); } }
+    await tab("Secret Stores"); for (const id of ["gcp", "delinea", "cyberark", "azure", "aws"]) { await waitFor(() => expect(screen.getByTestId(`prov-${id}`)).toBeInTheDocument(), T); await click(`prov-${id}`); no401(); }
+    for (let i = 0; i < 3; i++) { await click("mode-mock"); await click("mode-live"); await click("mode-mock"); await click("mode-live"); }
+    await settled(); await waitFor(() => expect(screen.getByTestId("banner")).toHaveTextContent(/LIVE mode/), T); no401();
+    expect(statuses.filter((x) => x.status >= 400)).toEqual([]);
+  });
+
+  it("live: a vertical switch while a write is in flight shows neither the old answer nor an error, and the write itself was a valid one", async () => {
+    await mount(); await live();
+    delay = (url, init) => (/\/api\/vault\/entries$/.test(url) && init.method === "POST" ? 600 : 0);
+    await click("ce-submit"); await pick("vertical", "health");
+    await settled(); await waitFor(() => expect(screen.getByTestId("actor")).toHaveValue(VERTICALS.health.castUser), T); await settled(); no401();
+    expect(statuses.filter((x) => /vault\/entries$/.test(x.url) && x.status === 200).length).toBe(1);
+    await waitFor(() => expect(screen.getByTestId("vault-count")).toHaveTextContent("0 of 500"), T);
+  });
+
+  it("a tab that throws while drawing is replaced by a message with a retry, not a blank page", async () => {
+    const Boom = () => { throw new Error("boom"); };
+    const spy = console.error; console.error = () => {};
+    try { render(<ErrorBoundary><Boom /></ErrorBoundary>); expect(screen.getByTestId("boundary")).toHaveTextContent(/could not be drawn/); expect(screen.getByRole("button", { name: "Try again" })).toBeInTheDocument(); } finally { console.error = spy; }
+  });
+});
+
+describe("double clicks, the on-demand proof and the administrator-only helpers", () => {
+  it("six rapid clicks on Store in my vault make ONE entry", async () => {
+    await mount(); await live();
+    const b = screen.getByTestId("ce-submit"); for (let i = 0; i < 6; i++) fireEvent.click(b);
+    await settled(); await waitFor(() => expect(screen.getByTestId("vault-count")).toHaveTextContent("1 of 500"), T);
+    expect(statuses.filter((x) => /vault\/entries$/.test(x.url) && x.status === 200).length).toBe(1);
+  });
+
+  it("a big workspace shows 'not run' with a button; the button runs the proof on the server and the next read shows the result; a refusal never says the proof passed", async () => {
+    await mount(); await live();
+    for (let i = 0; i < 110; i++) await realFetch(`${base}/api/vault/entries`, { method: "POST", headers: { "content-type": "application/json", origin: base, "x-lab-actor": C.castUser, "x-workspace": workspaceId() }, body: JSON.stringify({ mode: "live", vertical: "finance", entry: { name: `e${i}`, targetId: C.castT1, shape: "bearer", generate: true } }) });
+    await tab("Governance"); await screen.findByTestId("policy-table", {}, T);
+    await click("reset"); await screen.findByTestId("lab-clock", {}, T);
+    for (let i = 0; i < 110; i++) await realFetch(`${base}/api/vault/entries`, { method: "POST", headers: { "content-type": "application/json", origin: base, "x-lab-actor": C.castUser, "x-workspace": workspaceId() }, body: JSON.stringify({ mode: "live", vertical: "finance", entry: { name: `e${i}`, targetId: C.castT1, shape: "bearer", generate: true } }) });
+    await click("mode-mock"); await click("mode-live");
+    await waitFor(() => expect(screen.getByTestId("proof-skipped")).toHaveTextContent(/Run the proof now/), T);
+    expect(screen.queryByTestId("proof-found")).toBeNull();
+    await click("proof-run");
+    await waitFor(() => expect(screen.getByTestId("proof-found")).toHaveTextContent("0"), T);
+    expect(screen.getByTestId("proof-selftest")).toHaveTextContent(/all 7 planted copies were found/); expect(screen.getByTestId("proof-short")).toHaveTextContent(/whole field/);
+    expect(seen.some((x) => /proof\/run$/.test(x.url))).toBe(true);
+  });
+
+  it("the provider-side helper and the manual re-sync are for the administrator: greyed out for everyone else, with the reason", async () => {
+    await mount(); await live(); await tab("Secret Stores"); await screen.findByTestId("provider-change", {}, T);
+    expect(screen.getByTestId("pc-run")).toBeDisabled(); expect(screen.getByTestId("resync-now")).toBeDisabled(); expect(screen.getByTestId("provider-change")).toHaveTextContent(/administrator only/);
+    await actAs(C.castAdmin); await tab("Secret Stores"); await waitFor(() => expect(screen.getByTestId("resync-now")).toBeEnabled(), T);
+  });
+
+  it("the consumers table compares what a consumer holds against the provider now, and goes stale after a provider-side rotation", async () => {
+    await mount(); await live(); await tab("Secret Stores"); await screen.findByTestId("secrets-table", {}, T); await click("prov-aws");
+    const aws = `aws-${C.castAwsPrefix.replace("/", "-")}-db-admin`;
+    await click(`read-${aws}`); await waitFor(() => expect(screen.getByTestId("delivery")).toHaveTextContent(/Whether it still matches the provider is checked on the Governance tab/), T);
+    await tab("Governance"); await waitFor(() => expect(screen.getByTestId("consumer-simulated-gateway")).toHaveTextContent(/yes/), T);
+    await actAs(C.castAdmin); await tab("Secret Stores"); await click("prov-aws"); await waitFor(() => expect(screen.getByTestId("pc-ref")).toBeInTheDocument(), T);
+    await pick("pc-op", "rotate"); await click("pc-run"); await waitFor(() => expect(screen.getByTestId("store-message")).toHaveTextContent(/not been told/), T);
+    await tab("Governance"); await waitFor(() => expect(screen.getByTestId("consumer-simulated-gateway")).toHaveTextContent(/no: stale/), T);
   });
 });

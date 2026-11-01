@@ -12,6 +12,7 @@ export default function useLab({ mode, vertical, scenario, actor }) {
   const seq = useRef(0);       // loads
   const actSeq = useRef(0);    // writes
   const inflight = useRef(0);
+  const same = useRef(new Map()); // identical writes in flight: a double click is one request
   const ctx = useRef("");
   ctx.current = `${mode}|${vertical}|${actor}`;
 
@@ -26,7 +27,13 @@ export default function useLab({ mode, vertical, scenario, actor }) {
   useEffect(() => { load(); }, [load]);
 
   // act(method, route, extra): one write. The state in the answer replaces the page's state, unless a newer load or write has started.
-  const act = useCallback(async (method, route, extra = {}) => {
+  const act = useCallback((method, route, extra = {}) => {
+    const k = `${mode}|${vertical}|${actor}|${method} ${route} ${JSON.stringify(extra)}`;
+    if (same.current.has(k)) return same.current.get(k);
+    const p = doAct(method, route, extra).finally(() => same.current.delete(k));
+    same.current.set(k, p); return p;
+  }, [mode, vertical, actor]); // eslint-disable-line react-hooks/exhaustive-deps
+  const doAct = useCallback(async (method, route, extra = {}) => {
     const mine = ++actSeq.current; const key = `${mode}|${vertical}|${actor}`;
     inflight.current += 1; setBusy(true);
     try {

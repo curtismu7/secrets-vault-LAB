@@ -19,6 +19,7 @@ export default function StoresTab({ story, lab }) {
   const prov = state.stores.providers.find((p) => p.id === pid) || state.stores.providers[0];
   const items = state.stores.items.filter((i) => i.provider === prov.id);
   const off = lab.readOnly || lab.busy;
+  const admin = state.actor.role === "admin";
   useEffect(() => { setPath(""); setMsg(null); setDelivery(null); }, [pid]);
   useEffect(() => { if (!items.some((i) => i.ref === pc.ref)) setPc((p) => { const ref = items[0]?.ref || ""; return p.ref === ref ? p : { ...p, ref }; }); }, [items, pc.ref]);
   const show = (r, ok) => setMsg(r.ok ? { ok: true, text: ok } : { ok: false, text: `Refused: ${r.body.error || r.status}${r.body.detail ? ` (${r.body.detail})` : ""}` });
@@ -35,7 +36,7 @@ export default function StoresTab({ story, lab }) {
         <p className="lesson">{story.claims.find((c) => c.id === "five-providers").claim}</p>
         <div className="seg" role="group" aria-label="Provider">{state.stores.providers.map((p) => <button key={p.id} type="button" aria-pressed={pid === p.id} onClick={() => setPid(p.id)} data-testid={`prov-${p.id}`}>{p.name}</button>)}</div>
         <p data-testid="prov-info">{prov.name}: structure is {prov.structure}. Soft-delete and purge: <strong>{prov.softDelete ? "yes (as the deck lists for Azure)" : "no, delete is permanent in this lab"}</strong>. File fields: {prov.fileFields ? "yes (Delinea)" : "no"}.</p>
-        <p data-testid="provider-connection">Provider connection credential: present, {prov.connection.bytes} bytes, version {prov.connection.version}, {prov.connection.sealed}. It is never returned. {state.actor.role === "admin" && <button type="button" disabled={off} onClick={() => post("/api/stores/connection", { provider: prov.id })} data-testid="prov-reconnect">Replace it (a new mock credential)</button>}</p>
+        <p data-testid="provider-connection">Provider connection credential: present, {prov.connection.bytes} bytes, version {prov.connection.version}, {prov.connection.sealed}. It is never returned. {admin && <button type="button" disabled={off} onClick={() => post("/api/stores/connection", { provider: prov.id })} data-testid="prov-reconnect">Replace it (a new mock credential)</button>}</p>
       </section>
       <div className="cols">
         <section className="panel" data-testid="hierarchy-panel">
@@ -59,12 +60,12 @@ export default function StoresTab({ story, lab }) {
       {delivery && (
         <section className="panel" data-state="ok" data-testid="delivery">
           <h3 className="panel__sub">{delivery.note}</h3>
-          <p>{delivery.ref} went to <strong>{delivery.consumer}</strong>: {delivery.bytes} bytes; the consumer says it matches the provider now: <strong>{delivery.matchesProviderNow ? "yes" : "no"}</strong>.</p>
+          <p>{delivery.ref} went to <strong>{delivery.consumer}</strong>: {delivery.bytes} bytes received. Whether it still matches the provider is checked on the Governance tab, against a fresh read.</p>
           <ul className="plain">{delivery.fields.map((f) => <li key={f.name}>{f.name} ({f.type}): {f.shown} {f.bytes} bytes</li>)}</ul>
           <p className="muted">The value is in no API response: the answer carries only names, sizes and this mask.</p>
         </section>
       )}
-      <div className="scroll"><table className="tbl tbl--wide" data-testid="secrets-table">
+      <div className="scroll"><table className="tbl tbl--xwide" data-testid="secrets-table">
         <caption>{prov.name}: secrets you hold a grant on (metadata only; the value is not in the inventory)</caption>
         <thead><tr><th>Path</th><th>Template</th><th>Tags</th><th>Version</th><th>Rotations</th><th>State</th><th>Your grants</th><th>Actions</th></tr></thead>
         <tbody>
@@ -86,15 +87,15 @@ export default function StoresTab({ story, lab }) {
       </table></div>
       <section className="panel" data-testid="provider-change">
         <h3 className="panel__sub">Someone changes the provider directly <SourceTag source="invented" /></h3>
-        <p className="muted">A lab helper: rename, delete, rotate or add a secret at the provider without telling Privilege. The inventory only learns at the next re-sync (nightly at 02:00 on the lab clock, or the button).</p>
+        <p className="muted">A lab helper, for the administrator only (it bypasses the grant model on purpose, and is audited as a provider-side change): rename, delete, rotate or add a secret at the provider without telling Privilege. The inventory only learns at the next re-sync (nightly at 02:00 on the lab clock, or the button, also the administrator's).{!admin && !lab.readOnly ? ` Act as ${state.roster.find((p) => p.role === "admin")?.id} to use it.` : ""}</p>
         <div className="filters">
-          <label>Change<select value={pc.op} disabled={off} onChange={(e) => setPc({ ...pc, op: e.target.value })} data-testid="pc-op"><option>rename</option><option>delete</option><option>rotate</option><option>create</option></select></label>
-          {pc.op !== "create" && <label>Secret<select value={pc.ref} disabled={off} onChange={(e) => setPc({ ...pc, ref: e.target.value })} data-testid="pc-ref">{items.map((i) => <option key={i.ref} value={i.ref}>{i.path}</option>)}</select></label>}
-          {(pc.op === "rename" || pc.op === "create") && <label>{pc.op === "rename" ? "New path" : "Path"}<input value={pc.path} disabled={off} onChange={(e) => setPc({ ...pc, path: e.target.value })} data-testid="pc-path" /></label>}
+          <label>Change<select value={pc.op} disabled={off || !admin} onChange={(e) => setPc({ ...pc, op: e.target.value })} data-testid="pc-op"><option>rename</option><option>delete</option><option>rotate</option><option>create</option></select></label>
+          {pc.op !== "create" && <label>Secret<select value={pc.ref} disabled={off || !admin} onChange={(e) => setPc({ ...pc, ref: e.target.value })} data-testid="pc-ref">{items.map((i) => <option key={i.ref} value={i.ref}>{i.path}</option>)}</select></label>}
+          {(pc.op === "rename" || pc.op === "create") && <label>{pc.op === "rename" ? "New path" : "Path"}<input value={pc.path} disabled={off || !admin} onChange={(e) => setPc({ ...pc, path: e.target.value })} data-testid="pc-path" /></label>}
         </div>
         <div className="seg">
-          <button type="button" disabled={off} onClick={async () => show(await post("/api/stores/provider-change", { change: { provider: prov.id, op: pc.op, ...(pc.op === "create" ? { path: pc.path } : { ref: pc.ref }), ...(pc.op === "rename" ? { newPath: pc.path } : {}) } }), "Changed at the provider. The inventory has not been told.")} data-testid="pc-run">Change it at the provider</button>
-          <button type="button" className="primary" disabled={off} onClick={async () => { const r = await post("/api/stores/resync", {}); show(r, `Re-synchronised: ${r.body?.result?.changes} change(s) found, from metadata only (last run ${t(state.clock)}).`); }} data-testid="resync-now">Re-sync now</button>
+          <button type="button" disabled={off || !admin} onClick={async () => show(await post("/api/stores/provider-change", { change: { provider: prov.id, op: pc.op, ...(pc.op === "create" ? { path: pc.path } : { ref: pc.ref }), ...(pc.op === "rename" ? { newPath: pc.path } : {}) } }), "Changed at the provider. The inventory has not been told.")} data-testid="pc-run">Change it at the provider</button>
+          <button type="button" className="primary" disabled={off || !admin} onClick={async () => { const r = await post("/api/stores/resync", {}); show(r, `Re-synchronised: ${r.body?.result?.changes} change(s) found, from metadata only (last run ${t(state.clock)}).`); }} data-testid="resync-now">Re-sync now</button>
         </div>
       </section>
     </div>

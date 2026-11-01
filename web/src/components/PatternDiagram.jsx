@@ -8,7 +8,6 @@ import { ClaimTag } from "./Bits";
 const FIT = { padding: 0.08 };
 // At phone width fitting the whole wide diagram makes the text unreadable, so the view is held at 0.8 on the first two boxes (node text is enlarged in app.css);
 // drag the canvas to pan, drag a box to move it.
-const narrow = () => typeof window !== "undefined" && typeof window.matchMedia === "function" && window.matchMedia("(max-width: 600px)").matches;
 const HANDLES = [["t", Position.Top], ["b", Position.Bottom], ["l", Position.Left], ["r", Position.Right]];
 
 function Box({ data }) {
@@ -57,7 +56,7 @@ function sides(a, b) {
 
 function Canvas({ pattern, positions, onMove, stepper }) {
   const ref = useRef(null);
-  const fit = useMemo(() => (narrow() ? { padding: 0.1, minZoom: 0.8, maxZoom: 0.8, nodes: pattern.nodes.slice(0, 2).map((n) => ({ id: n.id })) } : FIT), [pattern]);
+  const fit = FIT; // the whole diagram is always fitted; at phone width the canvas is wider than the screen and scrolls sideways inside its own box (see .pat-scroll)
   useFitOnResize(ref, fit);
   const active = stepper.step >= 0 ? pattern.steps[stepper.step] : null;
   const nodes = pattern.nodes.map((n) => ({
@@ -135,10 +134,12 @@ export default function PatternDiagram({ pattern, resetSignal = 0 }) {
           <p>{step.say}</p>
         </article>
       )}
-      <ReactFlowProvider>
-        <Canvas pattern={pattern} positions={positions} onMove={onMove} stepper={stepper} />
-      </ReactFlowProvider>
-      <p className="muted">Drag any box; drag the background to pan. Simulated; hosts are examples; Ping release claims UNVERIFIED on our tenant. Moved: {Object.keys(positions).filter((k) => positions[k].x !== initial[k].x || positions[k].y !== initial[k].y).length} box(es).</p>
+      <div className="pat-scroll" data-testid="pattern-scroll">
+        <ReactFlowProvider>
+          <Canvas pattern={pattern} positions={positions} onMove={onMove} stepper={stepper} />
+        </ReactFlowProvider>
+      </div>
+      <p className="muted">Drag any box; drag the background to pan (on a phone the picture scrolls sideways). Simulated; hosts are examples; Ping release claims UNVERIFIED on our tenant. Moved: {Object.keys(positions).filter((k) => positions[k].x !== initial[k].x || positions[k].y !== initial[k].y).length} box(es).</p>
     </section>
   );
 }

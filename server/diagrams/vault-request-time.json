@@ -4,36 +4,157 @@
   "title": "User Vault: the caller's own credential, injected at request time",
   "lede": "An agent asks for an operation. The gateway reads only the caller's own vault, unseals the credential and injects it. The agent never sees it and the backend logs who actually acted. Ping release claim, UNVERIFIED on our tenant. Simulated.",
   "groups": {
-    "client": { "label": "Caller", "color": "dark" },
-    "gateway": { "label": "Gateway", "color": "red" },
-    "store": { "label": "Vault", "color": "grey" },
-    "upstream": { "label": "Backend", "color": "grey" },
-    "policy": { "label": "Key", "color": "blue" }
+    "client": {
+      "label": "Caller",
+      "color": "dark"
+    },
+    "gateway": {
+      "label": "Gateway",
+      "color": "red"
+    },
+    "store": {
+      "label": "Vault",
+      "color": "grey"
+    },
+    "upstream": {
+      "label": "Backend",
+      "color": "grey"
+    },
+    "policy": {
+      "label": "Key",
+      "color": "blue"
+    }
   },
   "nodes": [
-    { "id": "agent", "label": "{{castAgent}} (the agent)", "group": "client", "x": 0, "y": 200 },
-    { "id": "gw", "label": "Gateway (app set to per-user credentials)", "group": "gateway", "x": 400, "y": 200 },
-    { "id": "vault", "label": "{{castUser}}'s own vault (sealed, AES-256-GCM)", "group": "store", "x": 400, "y": 0 },
-    { "id": "key", "label": "Key provider (AWS KMS, Vault or development key; mock)", "group": "policy", "x": 800, "y": 0 },
-    { "id": "be", "label": "{{castT1}} (backend)", "group": "upstream", "x": 800, "y": 200 },
-    { "id": "log", "label": "Backend log: principal = {{castUser}}", "group": "upstream", "x": 800, "y": 400 }
+    {
+      "id": "agent",
+      "label": "{{castAgent}} (the agent)",
+      "group": "client",
+      "x": 0,
+      "y": 300
+    },
+    {
+      "id": "gw",
+      "label": "Gateway (app set to per-user credentials)",
+      "group": "gateway",
+      "x": 400,
+      "y": 200
+    },
+    {
+      "id": "vault",
+      "label": "{{castUser}}'s own vault (sealed, AES-256-GCM)",
+      "group": "store",
+      "x": 400,
+      "y": 0
+    },
+    {
+      "id": "key",
+      "label": "Key provider (AWS KMS, Vault or development key; mock)",
+      "group": "policy",
+      "x": 800,
+      "y": 0
+    },
+    {
+      "id": "be",
+      "label": "{{castT1}} (backend)",
+      "group": "upstream",
+      "x": 800,
+      "y": 400
+    },
+    {
+      "id": "log",
+      "label": "Backend log: principal = {{castUser}}",
+      "group": "upstream",
+      "x": 1200,
+      "y": 400
+    }
   ],
   "edges": [
-    { "source": "agent", "target": "gw", "label": "ask for an operation (no credential)" },
-    { "source": "gw", "target": "vault", "label": "caller's own entry only" },
-    { "source": "key", "target": "vault", "label": "data key unseals it" },
-    { "source": "vault", "target": "gw", "label": "credential, in memory only" },
-    { "source": "gw", "target": "be", "label": "inject it (bearer, key, Basic or headers)" },
-    { "source": "be", "target": "log", "label": "log who actually acted" },
-    { "source": "be", "target": "agent", "label": "answer only" }
+    {
+      "source": "agent",
+      "target": "gw",
+      "label": "ask for an operation (no credential)"
+    },
+    {
+      "source": "gw",
+      "target": "vault",
+      "label": "caller's own entry only"
+    },
+    {
+      "source": "key",
+      "target": "vault",
+      "label": "data key unseals it"
+    },
+    {
+      "source": "vault",
+      "target": "gw",
+      "label": "credential, in memory only"
+    },
+    {
+      "source": "gw",
+      "target": "be",
+      "label": "inject it (bearer, key, Basic or headers)"
+    },
+    {
+      "source": "be",
+      "target": "log",
+      "label": "log who actually acted"
+    },
+    {
+      "source": "be",
+      "target": "agent",
+      "label": "answer only"
+    }
   ],
   "steps": [
-    { "title": "The agent asks", "what": "The agent asks the gateway for an operation on {{castT1}}. It holds no credential.", "edges": [0] },
-    { "title": "Caller's own vault only", "what": "The gateway looks in the vault of the caller, and nowhere else: there is no way to name another vault.", "edges": [1] },
-    { "title": "The key unseals it", "what": "The data key, resolved at startup from AWS Secrets Manager with KMS, or Vault, or the development key as fallback, opens the sealed value.", "edges": [2] },
-    { "title": "Credential to gateway", "what": "The plaintext lives in memory for this call and is never returned by any API.", "edges": [3] },
-    { "title": "Injected into backend", "what": "The gateway builds the Authorization or header form for the entry's shape and sends it.", "edges": [4] },
-    { "title": "Backend logs who acted", "what": "The backend identifies the caller from the credential itself, so its log names {{castUser}}, not a shared account.", "edges": [5] },
-    { "title": "Answer to the agent", "what": "Only the answer goes back. The agent never learned the credential.", "edges": [6] }
+    {
+      "title": "The agent asks",
+      "what": "The agent asks the gateway for an operation on {{castT1}}. It holds no credential.",
+      "edges": [
+        0
+      ]
+    },
+    {
+      "title": "Caller's own vault only",
+      "what": "The gateway looks in the vault of the caller, and nowhere else: there is no way to name another vault.",
+      "edges": [
+        1
+      ]
+    },
+    {
+      "title": "The key unseals it",
+      "what": "The data key, resolved at startup from AWS Secrets Manager with KMS, or Vault, or the development key as fallback, opens the sealed value.",
+      "edges": [
+        2
+      ]
+    },
+    {
+      "title": "Credential to gateway",
+      "what": "The plaintext lives in memory for this call and is never returned by any API.",
+      "edges": [
+        3
+      ]
+    },
+    {
+      "title": "Injected into backend",
+      "what": "The gateway builds the Authorization or header form for the entry's shape and sends it.",
+      "edges": [
+        4
+      ]
+    },
+    {
+      "title": "Backend logs who acted",
+      "what": "The backend identifies the caller from the credential itself, so its log names {{castUser}}, not a shared account.",
+      "edges": [
+        5
+      ]
+    },
+    {
+      "title": "Answer to the agent",
+      "what": "Only the answer goes back. The agent never learned the credential.",
+      "edges": [
+        6
+      ]
+    }
   ]
 }

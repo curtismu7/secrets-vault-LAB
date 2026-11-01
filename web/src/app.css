@@ -88,7 +88,7 @@ summary { cursor: pointer; font-weight: 700; font-size: 14px; }
 .pat-elabel[data-now="true"] { border-color: var(--focus); font-weight: 700; }
 .pat-elabel[data-dim="true"] { opacity: 0.55; }
 @media (max-width: 900px) { .pat-canvas { height: 520px; } }
-@media (max-width: 600px) { .pat-node { font-size: 15px; } .pat-elabel { font-size: 15px; } .head__title { font-size: 18px; } .pat-canvas { height: 560px; } .panel { padding: 10px; } }
+@media (max-width: 600px) { .pat-node { font-size: 14px; } .pat-elabel { font-size: 13px; } .head__title { font-size: 18px; } .pat-canvas { height: 520px; min-width: 1500px; } .panel { padding: 10px; } }
 
 .last { margin-top: 12px; }
 .tag { margin: 2px 4px 2px 0; }
@@ -105,3 +105,6 @@ summary { cursor: pointer; font-weight: 700; font-size: 14px; }
 code { overflow-wrap: anywhere; }
 .panel > label > input:not([type="checkbox"]), .panel > label > select { display: block; width: 100%; margin-top: 4px; }
 label.check { justify-content: flex-start; }
+.tbl--xwide { min-width: 880px; }
+.tbl--xwide td:first-child { overflow-wrap: break-word; word-break: normal; min-width: 220px; }
+.pat-scroll { overflow-x: auto; max-width: 100%; }

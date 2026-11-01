@@ -8,6 +8,7 @@ import TalkTrack from "./components/TalkTrack";
 import LastAction from "./components/LastAction";
 import ClockBar from "./components/ClockBar";
 import ScenarioBar from "./components/ScenarioBar";
+import ErrorBoundary from "./components/ErrorBoundary";
 import useLab from "./hooks/useLab";
 import { getJson, resetWorkspace } from "./api";
 import { setActor } from "./workspace";
@@ -43,8 +44,12 @@ export default function App() {
   const [resetSignal, setResetSignal] = useState(0);
   const [resetMsg, setResetMsg] = useState("");
   const tabsRef = useRef(null);
-  setActor(mode === "live" ? actor : null);
-  const lab = useLab({ mode, vertical, scenario: scenarioId, actor });
+  // Nothing is loaded in Live until the person belongs to the roster of the vertical being shown: a stale person from the previous vertical would be a
+  // spurious 401 (and a flash of an error). The story of the new vertical sets the person, and only then does the first request go out.
+  const storyReady = !!story && story.vertical === vertical;
+  const actorOk = storyReady && rosterOf(story.cast).some(([id]) => id === actor);
+  setActor(mode === "live" && actorOk ? actor : null);
+  const lab = useLab({ mode, vertical, scenario: scenarioId, actor: actorOk ? actor : null });
 
   useEffect(() => { getJson("/api/info").then((i) => setModeState((m) => m || savedMode() || i.mode), () => setModeState((m) => m || savedMode() || "mock")); }, []);
   useEffect(() => {
@@ -115,7 +120,7 @@ export default function App() {
             {!presenter && story && (
               <>
                 <label className="inline">Acting as{" "}
-                  <select value={mode === "live" ? actor || "" : lab.scenario?.actor || ""} disabled={mode !== "live"} onChange={(e) => setActorState(e.target.value)} data-testid="actor">
+                  <select value={mode === "live" ? (actorOk ? actor : "") : lab.scenario?.actor || ""} disabled={mode !== "live" || !actorOk} onChange={(e) => setActorState(e.target.value)} data-testid="actor">
                     {(mode === "live" ? roster : roster.filter(([id]) => id === lab.scenario?.actor)).map(([id, role]) => <option key={id} value={id}>{id} ({role})</option>)}
                   </select>
                 </label>
@@ -139,7 +144,7 @@ export default function App() {
         </div>
         <div id={`panel-${tab}`} role="tabpanel" aria-labelledby={`tab-${tab}`}>
           {error || lab.error ? <p className="app-error" role="alert">Could not load the lab ({error || lab.error}). Is the server running?</p> : !ready ? <p className="muted">Loading...</p> : (
-            <>
+            <ErrorBoundary key={`${vertical}|${mode}|${actorOk ? actor : "-"}|${tab}`}>
               {mode === "mock" && LIVE_TABS.includes(tab) && <ScenarioBar lab={lab} scenarioId={scenarioId} setScenarioId={setScenarioId} />}
               {mode === "live" && LIVE_TABS.includes(tab) && <ClockBar state={lab.state} lab={lab} />}
               {presenter && tab !== "talk" && (
@@ -154,7 +159,7 @@ export default function App() {
               {tab === "diagram" && <DiagramTab vertical={vertical} resetSignal={resetSignal} />}
               {tab === "talk" && <TalkTrack talk={story.talkTrack} />}
               {mode === "live" && LIVE_TABS.includes(tab) && <LastAction last={lab.last} />}
-            </>
+            </ErrorBoundary>
           )}
         </div>
       </main>
