@@ -7,11 +7,20 @@ import { findCredentials } from './credentials.js';
 export const WORKSPACE_RE = /^[a-z0-9-]{1,40}$/;
 export const DEFAULT_WORKSPACE = 'default';
 
+// A workspace id is echoed in the `workspace` field and in the hop headers, so one that LOOKS like a credential is refused (400 bad_workspace, never echoed).
+// Refused: no letter at all (the page always makes ids with a letter), a run of 24 or more hex digits, a credential-word prefix (sk-, pw-, token-, ...), and
+// anything the credential detectors find, read as typed and with its hyphens read as spaces ("password-hunter2xyz" is "password hunter2xyz"). A bare word
+// with no keyword ("hunter2xyz") cannot be told from a name and is accepted; the page says masking is a heuristic.
+const HEX_RUN = /[0-9a-f]{24,}/;
+const KEY_PREFIX = /^(?:sk|pk|rk|pw|pwd|pass|passwd|password|tok|token|secret|apikey|bearer|ghp|gho|ghu|ghs|ghr|github|glpat|xox[abprs]|akia|asia|eyj|ya29)(?:-|$)/;
+export function credentialLookingId(id) {
+  return !/[a-z]/.test(id) || HEX_RUN.test(id) || KEY_PREFIX.test(id) || findCredentials(id).length > 0 || findCredentials(id.replace(/-/g, ' ')).length > 0;
+}
+
 export function workspaceFrom(req) {
   const raw = req.headers['x-workspace'];
   if (raw === undefined) return DEFAULT_WORKSPACE;
-  // An id that looks like a credential is refused rather than echoed back in the `workspace` field and the hop headers.
-  return typeof raw === 'string' && WORKSPACE_RE.test(raw) && findCredentials(raw).length === 0 ? raw : null;
+  return typeof raw === 'string' && WORKSPACE_RE.test(raw) && !credentialLookingId(raw) ? raw : null;
 }
 
 export function createWorkspaces({ max = 500, ttlMs = 60 * 60 * 1000, now = Date.now } = {}) {

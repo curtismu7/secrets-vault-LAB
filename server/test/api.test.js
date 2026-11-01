@@ -203,7 +203,8 @@ test('unknown API paths and wrong methods are fixed JSON 404s; the static fallba
   await withServer(async (url) => {
     assert.deepEqual(await (await get(url, '/api/nope', U1)).json(), { error: 'not_found' });
     assert.deepEqual(await (await post(url, '/api/nope', {}, U1)).json(), { error: 'not_found' });
-    assert.equal((await post(url, '/api/vault/entries/vcr-0001', live({}), U1)).status, 404, 'POST on a PUT route');
+    const wrong = await post(url, '/api/vault/entries/vcr-0001', live({}), U1);
+    assert.equal(wrong.status, 405, 'POST on a GET/PUT route'); assert.equal(wrong.headers.get('allow'), 'GET, HEAD, PUT'); assert.deepEqual(await wrong.json(), { error: 'method_not_allowed' });
   });
 });
 

@@ -5,53 +5,18 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { C, U1, ADMIN, get, post, put, live, withServer } from './helpers.js';
 import { SECRETS } from './secrets.js';
+import { sweepAll } from './sweep.js';
 import { HIDDEN } from './hidden.js';
 
 const NEEDLES = Object.fromEntries(Object.entries(SECRETS).map(([k, v]) => [k, { raw: v, probe: k === 'pem' ? 'MIIEvQIBADANBgkqhkiG9w0BAQEFAASC' : k === 'bearer' ? 'tokenvalue' : k === 'assignment' ? 'hunter2hunter2' : k === 'plainIs' ? 'hunter2xyz' : k === 'pwColon' ? 'Hunter2Secret' : k === 'passEq' ? 'Tr0ub4dor' : k === 'passphrase' ? 'correct horse' : k === 'userinfo' ? 'hunter2@' : k === 'tokenWord' ? 'abcdef1234567890zz' : k === 'accountKey' ? 'abcdEFGH' : k === 'sessionId' ? '00D5g000008dkQz' : v }]));
 const W = (id) => ({ 'x-workspace': id });
-const AWS = `aws:${C.castAwsPrefix}/db-admin`;
 
 test('typing every credential shape into every field of every endpoint never echoes it (secret fields included: write-only)', async () => {
   const out = []; const realOut = process.stdout.write.bind(process.stdout); const realErr = process.stderr.write.bind(process.stderr);
   await withServer(async (url) => {
     const mk = await post(url, '/api/vault/entries', live({ entry: { name: 'seed', targetId: C.castT1, shape: 'bearer', generate: true } }), U1);
     const id = (await mk.json()).result.entryId;
-    const sweep = async (v) => {
-      const bodies = [
-        [U1, 'POST', '/api/vault/entries', live({ entry: { name: v, targetId: v, shape: v, notes: v, headerName: v, secret: v } })],
-        [U1, 'POST', '/api/vault/entries', live({ entry: { name: `n ${v}`, targetId: C.castT1, shape: 'bearer', notes: `see ${v} here`, secret: { token: v } } })],
-        [U1, 'POST', '/api/vault/entries', live({ entry: { name: 'x', targetId: C.castT3, shape: 'basic', secret: { username: v, password: v } } })],
-        [U1, 'POST', '/api/vault/entries', live({ entry: { name: 'x', targetId: C.castT4, shape: 'headers', secret: { headers: { [v]: v, 'X-Ok': v } } } })],
-        [U1, 'POST', '/api/vault/entries', live({ entry: { name: 'x', targetId: C.castT1, shape: 'bearer', generate: true, [v]: v } })],
-        [U1, 'PUT', `/api/vault/entries/${id}`, live({ entry: { name: v, notes: v, secret: { token: v }, [v]: v } })],
-        [U1, 'PUT', `/api/vault/entries/${encodeURIComponent(v)}`, live({ entry: { notes: v } })],
-        [U1, 'POST', `/api/vault/entries/${encodeURIComponent(v)}/delete`, live({})], [U1, 'POST', `/api/vault/entries/${encodeURIComponent(v)}/restore`, live({ [v]: v })],
-        [U1, 'POST', '/api/gateway/call', live({ call: { targetId: v, as: v, entryId: v, operation: v, [v]: v } })],
-        [U1, 'POST', '/api/gateway/call', live({ call: { targetId: C.castT1, as: 'per-user', entryId: id, operation: v } })],
-        [ADMIN, 'POST', '/api/vault/keys', live({ key: { configured: v, reachable: v, [v]: v } })],
-        [ADMIN, 'POST', '/api/targets', live({ target: { id: v, accepts: v, protocol: v, [v]: v } })],
-        [ADMIN, 'POST', `/api/targets/${encodeURIComponent(v)}/remove`, live({})],
-        [U1, 'POST', '/api/stores/secrets', live({ secret: { provider: v, path: v, template: v, tags: [v], fields: { [v]: v, value: v } } })],
-        [ADMIN, 'POST', '/api/stores/secrets', live({ secret: { provider: 'aws', path: `prod/x/${v}`, tags: [v], fields: { value: v } } })],
-        [ADMIN, 'POST', '/api/stores/secrets', live({ secret: { provider: 'aws', path: 'prod/echo/one', fields: { value: v } } })],
-        [U1, 'POST', '/api/stores/read', live({ read: { ref: v, consumer: v, [v]: v } })], [U1, 'POST', '/api/stores/read', live({ read: { ref: AWS, consumer: v } })],
-        [U1, 'POST', '/api/stores/update', live({ update: { ref: v, fields: { [v]: v }, tags: [v] } })], [ADMIN, 'POST', '/api/stores/update', live({ update: { ref: 'aws:prod/echo/one', fields: { value: v }, tags: [v] } })],
-        [U1, 'POST', '/api/stores/rotate', live({ ref: v })], [U1, 'POST', '/api/stores/delete', live({ ref: v })], [U1, 'POST', '/api/stores/recover', live({ ref: v })], [U1, 'POST', '/api/stores/purge', live({ ref: v })],
-        [ADMIN, 'POST', '/api/stores/connection', live({ provider: v })],
-        [ADMIN, 'POST', '/api/stores/provider-change', live({ change: { provider: v, op: v, ref: v, newPath: v, path: v } })],
-        [ADMIN, 'POST', '/api/stores/provider-change', live({ change: { provider: 'aws', op: 'create', path: v } })],
-        [ADMIN, 'POST', '/api/stores/resync', live({ [v]: v })],
-        [ADMIN, 'POST', '/api/policies', live({ grant: { principal: v, scope: v, actions: [v], [v]: v } })], [ADMIN, 'POST', `/api/policies/${encodeURIComponent(v)}/revoke`, live({})],
-        [U1, 'POST', '/api/clock', live({ clock: { minutes: v, [v]: v } })],
-        [U1, 'POST', '/api/reset', { [v]: v }],
-      ];
-      const gets = [`/api/state?mode=${encodeURIComponent(v)}`, `/api/state?mode=live&vertical=${encodeURIComponent(v)}&scenario=${encodeURIComponent(v)}`, `/api/state?mode=mock&scenario=${encodeURIComponent(v)}`, `/api/state?mode=live&${encodeURIComponent(v)}=${encodeURIComponent(v)}`, `/api/story?vertical=${encodeURIComponent(v)}`, `/api/diagram?name=${encodeURIComponent(v)}&vertical=${encodeURIComponent(v)}`, `/api/vault/entries/${encodeURIComponent(v)}`, `/api/vault/entries?owner=${encodeURIComponent(v)}`, `/api/stores/secrets?x=${encodeURIComponent(v)}`, `/api/${encodeURIComponent(v)}`, `/api/health?x=${encodeURIComponent(v)}`];
-      const texts = [];
-      for (const [who, m, p, b] of bodies) { const r = await (m === 'PUT' ? put : post)(url, p, b, who); texts.push(`${m} ${r.status} ${await r.text()} ${[...r.headers.values()].join(' ')}`); }
-      for (const g of gets) { const r = await get(url, g, U1); texts.push(`GET ${r.status} ${await r.text()} ${[...r.headers.values()].join(' ')}`); }
-      for (const hv of [v, `a ${v}`]) { const clean = hv.slice(0, 40).replace(/[^\x20-\x7e]/g, '?'); for (const h of [{ 'x-workspace': clean }, { 'x-lab-actor': clean }]) { const r = await get(url, '/api/state?mode=live', h['x-lab-actor'] ? clean : U1, h['x-workspace'] ? h : {}); texts.push(`H ${r.status} ${await r.text()}`); } }
-      return texts;
-    };
+    const sweep = (v) => sweepAll(url, v, id);
     process.stdout.write = (c, ...a) => { out.push(String(c)); return realOut(c, ...a); }; process.stderr.write = (c, ...a) => { out.push(String(c)); return realErr(c, ...a); };
     try {
       let formNo = 0;

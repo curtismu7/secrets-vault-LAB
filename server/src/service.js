@@ -16,14 +16,20 @@ const KNOWN = new Set([...Object.values(KEYS).flat(), ...Object.keys(KEYS), 'id'
 
 // A copy of the visitor's parameters that is safe to show: strings cleaned and masked, key names shown only when allow-listed, anything under a
 // secret-carrying key replaced by a write-only marker. Depth- and width-limited.
+// A shown string is masked FIRST and cut to 300 characters afterwards; when it is cut the pane says so (nothing is silently dropped from view).
+const CUT = ' ... (cut for display)';
+const shownString = (value) => { const c = cleanFree(value, 301); return c.length > 300 ? `${c.slice(0, 300)}${CUT}` : c; };
 export function scrub(value, depth = 0, secret = false) {
   if (secret) return typeof value === 'string' ? `(write-only, ${Buffer.byteLength(value)} bytes)` : isObj(value) || Array.isArray(value) ? '(write-only)' : typeof value === 'number' || typeof value === 'boolean' || value === null ? value : undefined;
-  if (typeof value === 'string') return cleanFree(value, 300);
-  if (Array.isArray(value)) return depth > 4 ? [] : value.slice(0, 10).map((v) => scrub(v, depth + 1));
+  if (typeof value === 'string') return shownString(value);
+  if (Array.isArray(value)) return depth > 4 ? '(too deep to show)' : [...value.slice(0, 10).map((v) => scrub(v, depth + 1)), ...(value.length > 10 ? [`(${value.length - 10} more not shown)`] : [])];
   if (isObj(value)) {
-    if (depth > 4) return {};
+    if (depth > 4) return '(too deep to show)';
     let unknown = 0;
-    return Object.fromEntries(Object.keys(value).slice(0, 20).map((k) => [KNOWN.has(k) ? k : `(unrecognised key ${++unknown})`, scrub(value[k], depth + 1, SECRET_KEYS.has(k))]));
+    const keys = Object.keys(value);
+    const entries = keys.slice(0, 20).map((k) => [KNOWN.has(k) ? k : `(unrecognised key ${++unknown})`, scrub(value[k], depth + 1, SECRET_KEYS.has(k))]);
+    if (keys.length > 20) entries.push(['(more keys)', `${keys.length - 20} not shown`]);
+    return Object.fromEntries(entries);
   }
   return typeof value === 'number' || typeof value === 'boolean' || value === null ? value : undefined;
 }
