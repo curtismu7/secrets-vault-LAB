@@ -63,7 +63,7 @@ export async function runChecks({ env = process.env, table = MOCK_TABLE } = {}) 
   const filled = JSON.stringify(Object.keys(VERTICALS).map((k) => buildStory(VERTICALS[k], k)));
   const hosts = scanHosts(filled);
   add('story-hosts', hosts.length ? 'fail' : 'pass', hosts.length ? `non-reserved hosts: ${hosts.join(', ')}` : 'every host in the story data is .invalid or .example');
-  const keys = scanKeys(filled); const creds = findCredentials(filled);
+  const keys = scanKeys(filled); const creds = findCredentials(filled, { limit: 10_000_000 });
   add('story-keys', keys.length || creds.length ? 'fail' : 'pass', keys.length || creds.length ? 'credential-shaped text in the story data' : 'no credential-shaped value anywhere in the story data');
   const story = buildStory(VERTICALS.finance, 'finance');
   add('masking', JSON.stringify(maskDeep(story)) === JSON.stringify(story) ? 'pass' : 'fail', 'the response mask leaves the story untouched (it only changes credential-shaped values)');

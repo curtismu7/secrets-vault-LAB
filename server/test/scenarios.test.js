@@ -67,7 +67,7 @@ test('Mock mode shows what the story says: another person gets not found, the sh
 
 test('the Mock table carries no credential-shaped text, no real host and no provider value, and every snapshot\'s no-copy proof found nothing', () => {
   const t = JSON.stringify(MOCK_TABLE);
-  assert.deepEqual(findCredentials(t.replace(/"(hash)":"[0-9a-f]{64}"/g, '')), []);
+  assert.deepEqual(findCredentials(t.replace(/"(hash)":"[0-9a-f]{64}"/g, ''), { limit: 10_000_000 }), []);
   assert.deepEqual(scanHosts(t), []);
   assert.ok(!/MOCK-/.test(t));
   for (const v of Object.values(MOCK_TABLE.verticals)) for (const sc of v.scenarios) { assert.equal(sc.state.proof.valuesFound, 0); assert.equal(sc.state.proof.selfTest.detected, true); }

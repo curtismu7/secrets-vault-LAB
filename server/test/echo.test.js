@@ -5,6 +5,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { C, U1, ADMIN, get, post, put, live, withServer } from './helpers.js';
 import { SECRETS } from './secrets.js';
+import { HIDDEN } from './hidden.js';
 
 const NEEDLES = Object.fromEntries(Object.entries(SECRETS).map(([k, v]) => [k, { raw: v, probe: k === 'pem' ? 'MIIEvQIBADANBgkqhkiG9w0BAQEFAASC' : k === 'bearer' ? 'tokenvalue' : k === 'assignment' ? 'hunter2hunter2' : k === 'plainIs' ? 'hunter2xyz' : k === 'pwColon' ? 'Hunter2Secret' : k === 'passEq' ? 'Tr0ub4dor' : k === 'passphrase' ? 'correct horse' : k === 'userinfo' ? 'hunter2@' : k === 'tokenWord' ? 'abcdef1234567890zz' : k === 'accountKey' ? 'abcdEFGH' : k === 'sessionId' ? '00D5g000008dkQz' : v }]));
 const W = (id) => ({ 'x-workspace': id });
@@ -53,12 +54,13 @@ test('typing every credential shape into every field of every endpoint never ech
     };
     process.stdout.write = (c, ...a) => { out.push(String(c)); return realOut(c, ...a); }; process.stderr.write = (c, ...a) => { out.push(String(c)); return realErr(c, ...a); };
     try {
-      for (const [name, n] of Object.entries(NEEDLES)) {
-        const texts = await sweep(n.raw);
-        // The endpoints answer with ONLY fixed codes and masked text: the probe part of the value must be in none of them.
-        const hit = texts.filter((t) => t.includes(n.probe));
-        assert.deepEqual(hit.map((t) => t.slice(0, 180)), [], `${name}: the value came back`);
-        for (const who of [U1, ADMIN]) { const state = JSON.stringify(await (await get(url, '/api/state?mode=live', who)).json()) + JSON.stringify(await (await get(url, '/api/governance', who)).json()); assert.ok(!state.includes(n.probe), `${name}: absent from the state shown to ${who}`); }
+      let formNo = 0;
+      for (const [name, n] of Object.entries(NEEDLES)) for (const [form, typed] of [['raw', n.raw], ['hidden', [...n.raw].join(String.fromCodePoint(HIDDEN[formNo++ % HIDDEN.length]))], ['percent-encoded once', encodeURIComponent(n.raw)], ['percent-encoded twice', encodeURIComponent(encodeURIComponent(n.raw))]]) {
+        const texts = await sweep(typed);
+        // The endpoints answer with ONLY fixed codes and masked text: the probe part of the value (and the typed form) must be in none of them.
+        const hit = texts.filter((t) => t.includes(n.probe) || (form !== 'raw' && t.includes(typed)));
+        assert.deepEqual(hit.map((t) => t.slice(0, 180)), [], `${name} (${form}): the value came back`);
+        for (const who of [U1, ADMIN]) { const state = JSON.stringify(await (await get(url, '/api/state?mode=live', who)).json()) + JSON.stringify(await (await get(url, '/api/governance', who)).json()); assert.ok(!state.includes(n.probe), `${name} (${form}): absent from the state shown to ${who}`); }
       }
     } finally { process.stdout.write = realOut; process.stderr.write = realErr; }
   });
