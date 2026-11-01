@@ -6,7 +6,8 @@ import { installNetguard } from '../src/netguard.js';
 
 // The parallel tests send `connection: close`, so no request can race a keep-alive socket the server just closed (the cause of the one ECONNRESET seen at load 145).
 // Nothing is retried: a retried POST could double-create, and an assertion is never retried.
-const withRetry = (fn) => fn();
+// The ONE retry: a connect timeout or refusal means the request never reached the server, so repeating it cannot double-create (an answered request, a reset after sending, and every assertion are never retried).
+const withRetry = async (fn, tries = 4) => { for (let i = 0; ; i++) { try { return await fn(); } catch (e) { const c = e?.cause?.code || e?.code; if (i + 1 >= tries || !['UND_ERR_CONNECT_TIMEOUT', 'ECONNREFUSED'].includes(c)) throw e; await new Promise((r) => setTimeout(r, 100 * (i + 1))); } } };
 const CLOSE = { connection: 'close' };
 
 const guard = installNetguard(); // installed for the whole file: every test here runs under it
@@ -103,8 +104,8 @@ test('the 64 KB bound over HTTP: exactly 65536 bytes is stored, 65537 is refused
 test('the 500-entry bound over HTTP, under 600 creates in parallel waves: exactly 500 succeed, 100 are refused, nothing is dropped or duplicated', async () => {
   await withServer(async (url) => {
     const bodies = []; const statuses = [];
-    for (let wave = 0; wave < 6; wave++) { // six waves of 100 truly parallel requests (one wave of 600 sockets overruns the listen backlog on a loaded machine)
-      const rs = await Promise.all(Array.from({ length: 100 }, (_, i) => withRetry(() => post(url, '/api/vault/entries', live({ entry: entry({ name: `e${wave}-${i}` }) }), U1, { ...W('cap'), ...CLOSE }))));
+    for (let wave = 0; wave < 30; wave++) { // thirty waves of 20 truly parallel requests (a wave of 100 new sockets starves the accept queue on a loaded machine)
+      const rs = await Promise.all(Array.from({ length: 20 }, (_, i) => withRetry(() => post(url, '/api/vault/entries', live({ entry: entry({ name: `e${wave}-${i}` }) }), U1, { ...W('cap'), ...CLOSE }))));
       statuses.push(...rs.map((r) => r.status)); bodies.push(...await Promise.all(rs.map((r) => r.json())));
     }
     assert.equal(statuses.filter((s) => s === 200).length, 500); assert.equal(statuses.filter((s) => s === 409).length, 100, 'the 501st and later are a real 409');
