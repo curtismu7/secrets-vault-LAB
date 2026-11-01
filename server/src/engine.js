@@ -61,7 +61,7 @@ export class Engine {
     this.#shared = {}; this.#connections = {};
     this.consumers = Object.fromEntries(CONSUMERS.map((c) => [c, { key: rand(32), last: null }]));
     this.s = this.fresh();
-    this.version = 0; this.proofCache = null; this.proofJob = null; this.proofSlices = 0;
+    this.refusalAudited = false; this.version = 0; this.proofCache = null; this.proofJob = null; this.proofSlices = 0;
     this.seedTargets();
     this.seedConnections();
     this.seedInventory();
@@ -89,6 +89,13 @@ export class Engine {
   audit(actor, domain, action, resource, outcome, code = '') {
     this.version += 1;
     this.s.audit.push({ id: `aud-${String(++this.s.seq.audit).padStart(5, '0')}`, at: iso(this.now()), actor: actor === 'system' ? 'system' : actor === 'provider-console' ? 'provider-console' : actor.id, role: typeof actor === 'string' ? actor : actor.role, domain, action, resource, outcome, ...(code ? { code } : {}) });
+  }
+  // Every refusal is audited, credential-free (the operation, the person, the fixed code): called once from the dispatch. gate() and the integrity check already
+  // audit their own denial and set the flag, so nothing is written twice. A full trail records no more refusals (it never grows past the cap).
+  auditRefusal(actor, op, err) {
+    if (!actor || this.refusalAudited || err.code === 'workspace_full' || this.s.audit.length >= LIMITS.audit) return;
+    const domain = /^store|^providerChange|^resync|^connectProvider/.test(op) ? 'store' : /^grant|^revoke/.test(op) ? 'policy' : 'vault';
+    this.audit(actor, domain, op, '-', err.status === 401 || err.status === 403 ? 'denied' : 'refused', err.code);
   }
   room(n = 6) { if (this.s.audit.length + n > LIMITS.audit) throw refuse('workspace_full', 'the audit trail of this workspace is full: Reset to start again', 409); }
   begin(actorIn) { const a = this.need(actorIn); this.sweep(); this.room(); return a; }
@@ -136,29 +143,43 @@ export class Engine {
   // ---- the clock, purging and cleanup ------------------------------------------------------------------------------------------------------------
   // Forward only. Staged deletions purge when now >= purgeAt (exactly 24 h after staging); a target removed earlier has had its entries cleaned;
   // every 02:00 the clock crosses runs the nightly re-sync of the connected stores.
-  advance({ minutes } = {}) {
-    this.room(8 + 8);
+  // `by` is the person who moved the clock (a lab control, not a product action: it is audited under their name, and it is not role-gated because the visitor
+  // needs it to see time pass as any person). The WHOLE move is refused up front if the audit trail could not hold what it would write.
+  advance({ minutes } = {}, by = null) {
+    this.room(8);
     if (!Number.isInteger(minutes) || minutes < 1 || minutes > ADVANCE_MAX_MIN) throw refuse('bad_minutes', 'minutes must be a whole number from 1 to 10080 (the clock only moves forward)');
     const old = this.now(); const to = old + minutes * MIN;
     const crossings = nightlyIndex(to) - nightlyIndex(old);
+    // worst case of what the sweep and the re-syncs will write: one summary entry per person for purges, one for clean-up, one per night, one for the move
+    if (this.s.audit.length + this.sweepAuditNeed(to) + crossings + 1 > LIMITS.audit) throw refuse('workspace_full', 'the audit trail of this workspace could not hold what this move would write: Reset to start again', 409);
     this.s.clock = to;
     const swept = this.sweep();
     let nightly = 0;
     for (let i = 1; i <= crossings; i++) { this.resync('nightly', (nightlyIndex(old) + i) * DAY + NIGHTLY_HOUR_UTC * HOUR); nightly += 1; }
     this.s.lastNightly = nightlyIndex(to);
-    this.audit('system', 'system', 'clock.advance', '-', 'allowed');
+    this.audit(by || 'system', 'system', 'clock.advance', '-', 'allowed');
     return { clock: iso(to), purged: swept.purged, cleaned: swept.cleaned, nightlyRuns: nightly };
   }
+  // how many audit entries a sweep at time `at` would write (one summary per person and kind)
+  sweepAuditNeed(at) {
+    const live = new Set(this.s.targets.map((t) => t.id)); let need = 0;
+    for (const list of Object.values(this.s.vault)) { if (list.some((e) => !live.has(e.targetId))) need += 1; if (list.some((e) => live.has(e.targetId) && e.status === 'staged-delete' && at >= e.purgeAt)) need += 1; }
+    return need;
+  }
+  summary(ids) { return ids.length <= 3 ? ids.join(', ') : `${ids.slice(0, 3).join(', ')} and ${ids.length - 3} more (${ids.length} entries)`; }
   sweep() {
     let purged = 0; let cleaned = 0;
     const live = new Set(this.s.targets.map((t) => t.id));
-    for (const [user, list] of Object.entries(this.s.vault)) {
+    for (const list of Object.values(this.s.vault)) {
+      const gone = []; const due = [];
       for (let i = list.length - 1; i >= 0; i--) {
         const e = list[i];
-        if (!live.has(e.targetId)) { list.splice(i, 1); cleaned += 1; this.s.counters.cleaned += 1; this.audit('system', 'vault', 'vault.cleanup', e.id, 'allowed', 'target_removed'); }
-        else if (e.status === 'staged-delete' && this.now() >= e.purgeAt) { list.splice(i, 1); purged += 1; this.s.counters.purged += 1; this.audit('system', 'vault', 'vault.purge', e.id, 'allowed', 'staged_24h'); }
+        if (!live.has(e.targetId)) { list.splice(i, 1); gone.push(e.id); }
+        else if (e.status === 'staged-delete' && this.now() >= e.purgeAt) { list.splice(i, 1); due.push(e.id); }
       }
-      void user;
+      // one audit entry per person and kind (ids listed up to three, then a count), so a big purge can never overrun the trail
+      if (gone.length) { cleaned += gone.length; this.s.counters.cleaned += gone.length; this.audit('system', 'vault', 'vault.cleanup', this.summary(gone.reverse()), 'allowed', 'target_removed'); }
+      if (due.length) { purged += due.length; this.s.counters.purged += due.length; this.audit('system', 'vault', 'vault.purge', this.summary(due.reverse()), 'allowed', 'staged_24h'); }
     }
     return { purged, cleaned };
   }
@@ -218,7 +239,7 @@ export class Engine {
   seal(userId, entryId, payload) { return sealBytes(this.#keys.key, Buffer.from(JSON.stringify(payload), 'utf8'), aadFor(userId, entryId), this.freshNonce()); }
   open(userId, entry) {
     try { return JSON.parse(openBytes(this.#keys.key, entry.sealed, aadFor(userId, entry.id)).toString('utf8')); }
-    catch (e) { if (e instanceof SealError) { this.audit(this.roster.get(userId) || 'system', 'vault', 'vault.integrity', entry.id, 'denied', 'sealed_value_rejected'); throw refuse('sealed_value_rejected', 'the stored value failed its integrity check and was not used', 409); } throw e; }
+    catch (e) { if (e instanceof SealError) { this.refusalAudited = true; this.audit(this.roster.get(userId) || 'system', 'vault', 'vault.integrity', entry.id, 'denied', 'sealed_value_rejected'); throw refuse('sealed_value_rejected', 'the stored value failed its integrity check and was not used', 409); } throw e; }
   }
   register(entry, payload) { this.backend.register(entry.targetId, headersFor(entry.shape, payload, entry.headerName), entry.owner); }
   headerNamesOf(shape, payload) { return shape === 'headers' ? Object.keys(payload.headers).sort() : undefined; }
@@ -338,7 +359,7 @@ export class Engine {
     return { targetId: t.id };
   }
   removeTarget(actorIn, input) {
-    const a = this.begin(actorIn); this.requireRole(a, 'admin');
+    const a = this.begin(actorIn); this.requireRole(a, 'admin'); this.room(12);
     const t = this.targetOf(input.id);
     this.s.targets = this.s.targets.filter((x) => x.id !== t.id); delete this.#shared[t.id];
     const before = this.s.counters.cleaned;
@@ -355,7 +376,6 @@ export class Engine {
     const t = this.targetOf(targetId);
     if (!['per-user', 'shared'].includes(as)) throw refuse('bad_mode', 'as must be per-user or shared');
     if (typeof operation !== 'string' || !t.operations.includes(operation)) throw refuse('bad_operation', 'that operation is not offered by this target');
-    if (this.s.gatewayLog.length >= LIMITS.gatewayLog) this.s.gatewayLog.shift();
     let headers; let lookedIn; let entry = null;
     this.hop('agent to gateway (no credential)', { method: 'POST', url: `https://gateway.example/${t.protocol}/${t.id}`, body: { tool: operation, onBehalfOf: a.id, credential: 'none: the agent never holds one' } }, { status: 202, body: { note: 'the gateway adds the credential' } });
     if (as === 'per-user') {
@@ -381,6 +401,7 @@ export class Engine {
     const r = this.backend.handle(t, headers, operation, iso(this.now()), LIMITS.backendLog);
     this.hop(`gateway to ${t.id} (credential injected)`, { method: 'POST', url: `https://${t.host}/${t.protocol}`, headers: Object.fromEntries(injected.map((i) => [i.header, i.shown])), body: { tool: operation } }, { status: r.status, body: { principal: r.principal, result: r.status === 200 ? 'ok' : r.outcome } });
     const n = ++this.s.seq.call;
+    if (this.s.gatewayLog.length >= LIMITS.gatewayLog) this.s.gatewayLog.shift();
     this.s.gatewayLog.push({ n, at: iso(this.now()), actor: a.id, targetId: t.id, as, entryId: entry?.id || null, status: r.status });
     this.audit(a, 'vault', 'gateway.call', entry?.id || `shared:${t.id}`, r.status === 200 ? 'allowed' : 'denied', r.status === 200 ? as : 'backend_rejected');
     return {
@@ -397,9 +418,9 @@ export class Engine {
   // A caller that has no grant at all on a path is told "not found" (existence is not revealed); one with some grant but not this action is told no.
   gate(actor, row, action, op = action) {
     const any = ACTIONS.some((x) => allowed(this.s.policies, actor.id, x, row.provider, row.path));
-    if (!any) { this.audit(actor, 'store', `store.${op}`, row ? row.ref : '-', 'denied', 'no_grant'); throw refuse('not_found', 'there is no such secret in the inventory', 404); }
+    if (!any) { this.refusalAudited = true; this.audit(actor, 'store', `store.${op}`, row ? row.ref : '-', 'denied', 'no_grant'); throw refuse('not_found', 'there is no such secret in the inventory', 404); }
     if (!allowed(this.s.policies, actor.id, action === 'read' ? 'read' : 'write', row.provider, row.path)) {
-      this.audit(actor, 'store', `store.${op}`, row.ref, 'denied', `${action === 'read' ? 'read' : 'write'}_not_granted`);
+      this.refusalAudited = true; this.audit(actor, 'store', `store.${op}`, row.ref, 'denied', `${action === 'read' ? 'read' : 'write'}_not_granted`);
       this.hop('policy engine: denied', { method: 'CHECK', url: `policy://${row.provider}`, body: { actor: actor.id, action: action === 'read' ? 'read' : 'write' } }, { status: 403, body: { allowed: false, reason: `${action === 'read' ? 'read' : 'write'} is a separate grant` } });
       throw refuse('access_denied', `you hold a grant on this secret, but not ${action === 'read' ? 'read' : 'write'}: read and write are separate grants`, 403);
     }
@@ -418,7 +439,7 @@ export class Engine {
     this.hop(`${PROVIDERS[id].name} (simulated, ${op})`, { method: conn.shape.method, url: conn.shape.url, headers: { authorization: 'the provider connection is sealed at rest and never shown' } }, resp);
   }
 
-  rowFor(actor, ref) { const row = this.invOf(ref); if (!row) { this.audit(actor, 'store', 'store.lookup', '-', 'denied', 'not_found'); throw refuse('not_found', 'there is no such secret in the inventory', 404); } return row; }
+  rowFor(actor, ref) { const row = this.invOf(ref); if (!row) { this.refusalAudited = true; this.audit(actor, 'store', 'store.lookup', '-', 'denied', 'not_found'); throw refuse('not_found', 'there is no such secret in the inventory', 404); } return row; }
   refreshRow(row) { const m = this.#providers[row.provider].list().find((x) => x.pid === row.pid); Object.assign(row, this.invRow(row.provider, m)); }
   canOf(actor, row) { return { read: allowed(this.s.policies, actor.id, 'read', row.provider, row.path), write: allowed(this.s.policies, actor.id, 'write', row.provider, row.path) }; }
   visibleInventory(actor) { return this.s.inventory.map((r) => ({ r, can: this.canOf(actor, r) })).filter((x) => x.can.read || x.can.write); }
@@ -551,7 +572,7 @@ export class Engine {
 
   // A change made at the PROVIDER by someone else (a lab helper: the real world does this without telling Privilege). The inventory does not know until a re-sync.
   providerChange(actorIn, { provider, op, ref, newPath, path } = {}) {
-    const a = this.begin(actorIn);
+    const a = this.begin(actorIn); this.requireRole(a, 'admin'); // a lab helper that bypasses the grant model, so it is the administrator's
     const p = this.provider(provider);
     if (!['rename', 'delete', 'create', 'rotate'].includes(op)) throw refuse('bad_change', 'op must be rename, delete, create or rotate');
     if (op === 'create') {
@@ -606,7 +627,7 @@ export class Engine {
     this.audit('system', 'store', `store.resync.${kind}`, '-', 'allowed', `changes_${items.length}`);
     return { report: report.id, changes: items.length, items: report.items };
   }
-  resyncNow(actorIn) { return this.resync('manual', this.now(), actorIn); }
+  resyncNow(actorIn) { const a = this.begin(actorIn); this.requireRole(a, 'admin'); return this.resync('manual', this.now()); }
 
   // ---- policy ------------------------------------------------------------------------------------------------------------------------------------
   grant(actorIn, input) {

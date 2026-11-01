@@ -44,12 +44,13 @@ const OPS = {
   resync: (e, a) => e.resyncNow(a),
   grant: (e, a, p) => e.grant(a, strict(p.grant, 'grant')),
   revoke: (e, a, p) => e.revoke(a, { id: idOf(p) }),
-  advance: (e, a, p) => { e.begin(a); return e.advance(strict(p.clock, 'clock')); },
+  advance: (e, a, p) => { e.begin(a); return e.advance(strict(p.clock, 'clock'), a); },
 };
 export const OP_NAMES = Object.keys(OPS);
 
 export function perform(engine, op, actor, params) {
   if (!Object.hasOwn(OPS, op)) throw new Error(`unknown op ${op}`);
+  engine.refusalAudited = false;
   try { return { ok: true, result: OPS[op](engine, actor, isObj(params) ? params : {}) }; }
-  catch (e) { if (e instanceof InputError) return { ok: false, status: e.status, code: e.code, detail: e.message }; throw e; }
+  catch (e) { if (e instanceof InputError) { engine.auditRefusal(actor, op, e); return { ok: false, status: e.status, code: e.code, detail: e.message }; } throw e; }
 }

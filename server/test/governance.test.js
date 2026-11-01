@@ -122,12 +122,12 @@ test('a move across several nights runs one re-sync per night; a manual re-sync 
   const e2 = newEngine();
   run(e2, 'providerChange', ADMIN, { change: { provider: 'aws', op: 'rotate', ref: AWS } });
   run(e2, 'providerChange', ADMIN, { change: { provider: 'azure', op: 'delete', ref: `azure:${C.castKv}/storage-key` } });
-  const r = run(e2, 'resync', U2, {}).result;
+  const r = run(e2, 'resync', ADMIN, {}).result;
   assert.equal(r.changes, 2);
   const rep = e2.s.reports.at(-1); assert.equal(rep.kind, 'manual');
   assert.deepEqual(rep.items.map((i) => [i.change, i.what.join()]).sort(), [['changed', 'state'], ['changed', 'version']]);
   assert.equal(e2.s.inventory.find((r2) => r2.ref === `azure:${C.castKv}/storage-key`).state, 'soft-deleted');
-  assert.equal(run(e2, 'resync', U2, {}).result.changes, 0);
+  assert.equal(run(e2, 'resync', ADMIN, {}).result.changes, 0);
 });
 
 test('a re-sync into a full inventory reports what it could not add instead of dropping it silently', () => {
