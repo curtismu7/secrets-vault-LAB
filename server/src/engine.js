@@ -455,7 +455,7 @@ export class Engine {
     const a = this.begin(actorIn);
     const p = this.provider(input.provider);
     if (typeof input.path !== 'string' || input.path.length > PATH_MAX || findCredentials(input.path).length) throw refuse('bad_path', 'that path is not valid for this provider');
-    if (!allowed(this.s.policies, a.id, 'write', p.id, input.path)) { this.audit(a, 'store', 'store.create', `${p.id}:-`, 'denied', 'write_not_granted'); throw refuse('access_denied', 'you do not hold the write grant for that location', 403); }
+    if (!allowed(this.s.policies, a.id, 'write', p.id, input.path)) { this.refusalAudited = true; this.audit(a, 'store', 'store.create', `${p.id}:-`, 'denied', 'write_not_granted'); throw refuse('access_denied', 'you do not hold the write grant for that location', 403); }
     const template = p.id === 'delinea' ? (input.template === undefined ? 'Password' : input.template) : null;
     if (p.id !== 'delinea' && input.template !== undefined) throw refuse('bad_template', 'only Delinea Secret Server has templates');
     if (p.id === 'delinea' && (typeof template !== 'string' || !Object.hasOwn(DELINEA_TEMPLATES, template))) throw refuse('bad_template', 'the template must be Password or Secure-File');
