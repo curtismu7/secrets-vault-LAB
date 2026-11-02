@@ -39,7 +39,7 @@ test('S2: a non-API path answers fixed JSON 404 for every method but GET (GET se
     await withServer(async (url) => {
       const host = new URL(url).host;
       for (const m of ['POST', 'PUT', 'DELETE', 'PATCH']) { const r = await rawHttp(`${url}/anything/at/all`, { method: m, headers: { host, origin: url } }); assert.equal(r.status, 404); assert.deepEqual(JSON.parse(r.text), { error: 'not_found' }, m); }
-      assert.equal((await rawHttp(`${url}/anything`, { headers: { host } })).status, 200);
+      assert.equal((await rawHttp(`${url}/anything`, { headers: { host, accept: 'text/html' } })).status, 200);
     }, { webDist: dist });
   } finally { fs.rmSync(dist, { recursive: true, force: true }); }
   await withServer(async (url) => { const r = await rawHttp(`${url}/anything`, { headers: { host: new URL(url).host } }); assert.equal(r.status, 404); assert.deepEqual(JSON.parse(r.text), { error: 'not_found' }); }, { webDist: '/nonexistent/dist' });
@@ -71,7 +71,7 @@ test('a missing file under /assets is a JSON 404, not the page; a file that exis
       const missing = await rawHttp(`${url}/assets/missing.js`, { headers: { host } });
       assert.equal(missing.status, 404); assert.deepEqual(JSON.parse(missing.text), { error: 'not_found' });
       assert.equal((await rawHttp(`${url}/assets/app.js`, { headers: { host } })).status, 200);
-      const page = await rawHttp(`${url}/some/route`, { headers: { host } }); assert.equal(page.status, 200); assert.match(page.headers['content-type'], /text\/html/);
+      const page = await rawHttp(`${url}/some/route`, { headers: { host, accept: 'text/html' } }); assert.equal(page.status, 200); assert.match(page.headers['content-type'], /text\/html/);
     }, { webDist: dist });
   } finally { fs.rmSync(dist, { recursive: true, force: true }); }
 });
