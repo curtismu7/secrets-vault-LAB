@@ -3,7 +3,7 @@
 // limits are LITERALS, never imported constants.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { cleanFree, findCredentials, maskResponseText, maskText, normalizeText } from '../src/credentials.js';
+import { cleanFree, findCredentials, maskResponseText, maskText } from '../src/credentials.js';
 import { scrub } from '../src/service.js';
 import { maskDeep } from '../src/mask.js';
 import { C, U1, U2, ADMIN, get, post, put, live, withServer } from './helpers.js';
@@ -35,8 +35,8 @@ test('A: every sweep payload with a control character inside the keyword is mask
     assert.ok(!has(maskResponseText(p)), `response mask: ${JSON.stringify(p)}`);
   }
   assert.equal(cleanFree(`${PW.slice(0, 4)}${U(0)}${PW.slice(4)}=${V1}`), '[masked:assignment]');
-  assert.equal(cleanFree(`my pa${U(0)}ss${U(0)}word is ${V1}`), 'my [masked:assignment]');
-  assert.equal(cleanFree(`tok${U(1)}en ${V1}`), '[masked:keyword-space]');
+  assert.equal(cleanFree(`my pa${U(0)}ss${U(0)}word is ${V1}`), 'my [masked:phrase]');
+  assert.equal(cleanFree(`tok${U(1)}en ${V1}`), '[masked:shape]');
 });
 
 test('A: all 62 C0/C1 controls (not tab, LF, CR) are DELETED: none can split the keyword or the value, and none turns into a space', () => {
@@ -47,8 +47,9 @@ test('A: all 62 C0/C1 controls (not tab, LF, CR) are DELETED: none can split the
     const ch = String.fromCharCode(c);
     assert.equal(cleanFree(`pass${ch}word=${V1}`), '[masked:assignment]', `U+${c.toString(16)} inside the keyword`);
     assert.equal(cleanFree(`password=hunter${ch}2xyz`), '[masked:assignment]', `U+${c.toString(16)} inside the value`);
-    assert.equal(cleanFree(`a${ch}b`), 'ab', `U+${c.toString(16)} is deleted, not turned into a space`);
-    assert.equal(normalizeText(`a${ch}b`), 'ab');
+    // 1.4.0 adoption: the shared masker does not rewrite ordinary text, so a control character in a harmless name stays as typed (it is not a secret and is
+    // never turned into a space). It used to be deleted by the app's own cleaner.
+    assert.equal(cleanFree(`a${ch}b`), /\s/.test(ch) ? 'a b' : `a${ch}b`, `U+${c.toString(16)} stays as typed (white space is collapsed to one space, as for any text)`);
     assert.ok(!has(maskResponseText(`tok${ch}en ${V1}`)), `response mask, U+${c.toString(16)}`);
   }
   // a control character that a percent-escape PRODUCES is deleted as well
@@ -62,7 +63,7 @@ test('A: all 62 C0/C1 controls (not tab, LF, CR) are DELETED: none can split the
 test('A: tab, newline, carriage return, U+2028 and U+2029 are separators, yet cannot split a keyword; a plain multi-line text stays readable', () => {
   for (const sep of ['\t', '\n', '\r', ' ', ' ']) {
     assert.equal(cleanFree(`pass${sep}word=${V1}`), '[masked:assignment]', JSON.stringify(sep));
-    assert.equal(cleanFree(`to${sep}ken ${V1}`), '[masked:keyword-space]', JSON.stringify(sep));
+    assert.equal(cleanFree(`to${sep}ken ${V1}`), '[masked:shape]', JSON.stringify(sep));
     assert.equal(cleanFree(`one${sep}two`), 'one two');
   }
   assert.equal(cleanFree('line one\nline two\tcol end\r\nlast'), 'line one line two col end last');
@@ -71,14 +72,14 @@ test('A: tab, newline, carriage return, U+2028 and U+2029 are separators, yet ca
 
 test('B: a credential word, plain whitespace and a 6+ character value with a digit is masked', () => {
   for (const k of [PW, 'pw', 'token', 'secret', 'api key', 'api-key', 'apikey', 'pwd', 'passwd', 'passphrase', 'credentials', 'private key', 'access key', 'session id', 'Passwords', 'TOKENS']) {
-    assert.equal(cleanFree(`${k} ${V1}`), '[masked:keyword-space]', k);
-    assert.equal(cleanFree(`my ${k}    ${V1} and more`), 'my [masked:keyword-space] and more', `${k} with several spaces and text after`);
-    assert.equal(cleanFree(`${k}\t${V1}`), '[masked:keyword-space]', `${k} then a tab`);
+    assert.equal(cleanFree(`${k} ${V1}`), '[masked:shape]', k);
+    assert.equal(cleanFree(`my ${k}    ${V1} and more`), 'my [masked:shape] and more', `${k} with several spaces and text after`);
+    assert.equal(cleanFree(`${k}\t${V1}`), '[masked:shape]', `${k} then a tab`);
   }
-  assert.equal(cleanFree(`the key is ${V1}`), 'the [masked:key-is]');
-  assert.equal(cleanFree(`key=${V1}`), '[masked:key-is]');
+  assert.equal(cleanFree(`the key is ${V1}`), '[masked:phrase]');
+  assert.equal(cleanFree(`key=${V1}`), '[masked:assignment]');
   assert.equal(cleanFree(`Bearer ${V1}`), '[masked:bearer]');
-  assert.equal(cleanFree(`${PW} "${V1}"`), '[masked:keyword-space]"');
+  assert.equal(cleanFree(`${PW} "${V1}"`), '[masked:shape]');
 });
 
 test('B: the false-positive trade-off, pinned both ways: a word with no digit after the keyword stays readable, and a short or digit-free value is NOT found', () => {
@@ -93,16 +94,17 @@ test('B: the false-positive trade-off, pinned both ways: a word with no digit af
   assert.equal(cleanFree('pw a1b2'), 'pw a1b2');
   assert.equal(cleanFree('hunter2xyz'), 'hunter2xyz');
   // the documented false positive: a value-like word WITH a digit after the keyword is masked
-  assert.equal(cleanFree('password reset99 now'), '[masked:keyword-space] now');
-  assert.equal(cleanFree('the token 2026rotation is due'), 'the [masked:keyword-space] is due');
+  assert.equal(cleanFree('password reset99 now'), '[masked:shape] now');
+  // 1.4.0 adoption: 'the token 2026rotation is due' is no longer masked (the shared masker needs a value shape after the keyword); it used to be a documented false positive.
+  assert.equal(cleanFree('the token 2026rotation is due'), 'the token 2026rotation is due');
 });
 
 test('C: user info without a scheme, after a bare //, and with a scheme (also a token alone before the @) is masked', () => {
-  assert.equal(cleanFree(`bob:${V1}@host.example`), '[masked:userinfo-bare]@host.example');
-  assert.equal(cleanFree(`//bob:${V1}@host.example`), '//[masked:userinfo-bare]@host.example');
-  assert.equal(cleanFree(`login bob:${V1}@10.0.0.5:8080/x`), 'login [masked:userinfo-bare]@10.0.0.5:8080/x');
-  assert.match(cleanFree(`https://bob:${V1}@host.example/x`), /^\[masked:url-userinfo\]host\.example\/x$/);
-  assert.match(cleanFree(`https://${V1}@host.example/x`), /^\[masked:url-userinfo\]host\.example\/x$/);
+  assert.equal(cleanFree(`bob:${V1}@host.example`), '[masked:userinfo]host.example');
+  assert.equal(cleanFree(`//bob:${V1}@host.example`), '//[masked:userinfo]host.example');
+  assert.equal(cleanFree(`login bob:${V1}@10.0.0.5:8080/x`), '[masked:shape]');
+  assert.match(cleanFree(`https://bob:${V1}@host.example/x`), /^https:\/\/\[masked:url-userinfo\]host\.example\/x$/);
+  assert.match(cleanFree(`https://${V1}@host.example/x`), /^https:\/\/\[masked:url-userinfo\]host\.example\/x$/);
   for (const ok of ['contact mailto:ops@corp.example', 'write to ops@corp.example', 'at 12:30 in the hall', 'a:b', 'user@host.example', 'https://host.example/path']) assert.equal(cleanFree(ok), ok, ok);
 });
 
@@ -110,7 +112,7 @@ test('D: a JSON-quoted assignment typed as text is masked, in any quoting', () =
   for (const t of [`{"${PW}":"${V1}"}`, `{"${PW}": "${V1}"}`, `{'${PW}': '${V1}'}`, `{"apiKey":"${V1}"}`, `{"a":1,"token":"${V1}"}`, `{"outer":{"${PW}":"${V1}"}}`]) {
     assert.ok(!has(cleanFree(t)), t); assert.ok(!has(maskResponseText(t)), `response ${t}`); assert.ok(findCredentials(t).length > 0, `name test ${t}`);
   }
-  assert.equal(cleanFree(`{"${PW}":"${V1}"}`), '{"[masked:assignment]"}');
+  assert.equal(cleanFree(`{"${PW}":"${V1}"}`), '{[masked:assignment]}');
 });
 
 test('the same payloads survive percent-encoding once, twice and three times, and fullwidth letters', () => {
@@ -230,16 +232,17 @@ test('refused whole, masked before cut: a name of 80 characters is kept, 81 refu
     assert.equal((await create({ name: n80 }, 'len-a')).status, 200); assert.equal((await create({ name: `${n80}z` }, 'len-b')).status, 400);
     const notes200 = `${'abcd '.repeat(39)}abcde`; assert.equal(notes200.length, 200);
     assert.equal((await create({ name: 'n', notes: notes200 }, 'len-c')).status, 200); assert.equal((await create({ name: 'n', notes: `${notes200}z` }, 'len-d')).status, 400);
-    // 180 characters of filler, then the credential: 199 characters as typed, but 211 once masked, so it is refused WHOLE (nothing stored) and never shown
+    // 180 characters of filler, then a 20-character token: 200 characters as typed, but 201 once masked ("[masked:prefix-token]" is 21), so it is refused WHOLE (nothing stored) and never shown
     const filler = `${'abcd '.repeat(36)}`; assert.equal(filler.length, 180);
-    const edge = `${filler}${PW} ${V1}`; assert.equal(edge.length, 199);
+    const tok20 = ['gh', 'p_a1B2c3D4e5F6g7H8'].join('');
+    const edge = `${filler}${tok20}`; assert.equal(edge.length, 200);
     const r = await create({ name: 'n', notes: edge }, 'len-e'); const t = await r.text();
-    assert.equal(r.status, 400); assert.ok(t.includes('"bad_notes"') && !has(t));
+    assert.equal(r.status, 400); assert.ok(t.includes('"bad_notes"') && !has(t) && !t.includes('a1B2c3D4e5'));
     const st = JSON.stringify((await (await get(url, '/api/state?mode=live', U1, { 'x-workspace': 'len-e' })).json()));
     assert.ok(!st.includes('abcd abcd abcd') && !has(st), 'nothing was stored');
     // a short note with the same credential is kept, masked
     const ok = await create({ name: 'n', notes: `rotate: ${PW} ${V1} soon` }, 'len-f'); const okb = await ok.json();
-    assert.equal(ok.status, 200); assert.equal(okb.result.entry.notes, 'rotate: [masked:keyword-space] soon');
+    assert.equal(ok.status, 200); assert.equal(okb.result.entry.notes, 'rotate: [masked:shape] soon');
     // the hop pane cuts a long display string at 300 characters and SAYS so
     const long = await post(url, '/api/stores/rotate', live({ ref: 'abc '.repeat(100) }), ADMIN, { 'x-workspace': 'len-g' }); const lj = await long.json();
     assert.match(lj.hops[0].request.body.ref, / \.\.\. \(cut for display\)$/); assert.equal(lj.hops[0].request.body.ref.indexOf(' ...'), 300);
@@ -278,11 +281,14 @@ test('vault secret VALUES (token, key, username, password, header values) never 
 test('Bearer or Basic with a short value: 6 or more characters with a digit is masked, a plain word is not; the response mask leaves long ids and hashes alone', () => {
   assert.equal(cleanFree('Bearer abc123'), '[masked:bearer]'); assert.equal(cleanFree('Basic zx9y8w'), '[masked:bearer]');
   assert.equal(cleanFree('Bearer abcde'), 'Bearer abcde', 'five characters'); assert.equal(cleanFree('Bearer tokens'), 'Bearer tokens'); assert.equal(cleanFree('Bearer abcdefgh'), 'Bearer abcdefgh', 'eight letters, no digit, under 10');
-  assert.equal(cleanFree('Bearer abcdefghij'), '[masked:bearer]', 'ten characters');
-  // the response mask skips the generic long-run detectors: an id or a hash in an answer is not a credential
-  const id = `req-${'a1b2c3d4'.repeat(5)}`; const hash = 'deadbeef'.repeat(8);
-  assert.equal(maskResponseText(id), id); assert.equal(maskResponseText(hash), hash);
-  assert.ok(cleanFree(hash).includes('[masked:'), 'the INPUT cleaner does mask a long opaque run');
+  // 1.4.0 adoption: ten letters with no digit are no longer masked after "Bearer" (the old cleaner masked them; the shared masker needs a digit or a longer value shape)
+  assert.equal(cleanFree('Bearer abcdefghij'), 'Bearer abcdefghij', 'ten letters, no digit');
+  // 1.4.0 adoption: the response mask no longer skips the long-run detectors. A long opaque run under a name the LAB writes (hash) is kept (opaqueKeys); the same run
+  // anywhere else is masked, in an answer as in input. A 64-digit hex run with no decimal digit is not found at all (documented limit).
+  const id = `req-${'a1b2c3d4'.repeat(5)}`; const hash = 'deadbeef'.repeat(8); const digest = 'a1b2c3d4'.repeat(8);
+  assert.equal(maskResponseText(id), '[masked:opaque]'); assert.equal(maskResponseText(hash), hash);
+  assert.equal(maskDeep({ hash: digest }).hash, digest, 'a field named hash is opaque'); assert.equal(maskDeep({ note: digest }).note, '[masked:opaque]');
+  assert.equal(cleanFree(digest), '[masked:opaque]', 'a long opaque run is masked in input');
 });
 
 test('hop pane overflow is marked: 10 list items and 20 keys are shown whole, one more is counted, never silently dropped', () => {

@@ -5,7 +5,7 @@ import { EXPECTED, buildMockTable, runScenario, scenarioList } from '../src/scen
 import { MOCK_TABLE } from '../src/mockTable.js';
 import { mockState } from '../src/service.js';
 import { withServer, get, post, live, C } from './helpers.js';
-import { findCredentials } from '../src/credentials.js';
+import { maskDeep } from '../src/mask.js';
 import { scanHosts } from '../src/safety.js';
 
 test('every scripted step gives the result the story says it does, in every vertical', () => {
@@ -67,7 +67,8 @@ test('Mock mode shows what the story says: another person gets not found, the sh
 
 test('the Mock table carries no credential-shaped text, no real host and no provider value, and every snapshot\'s no-copy proof found nothing', () => {
   const t = JSON.stringify(MOCK_TABLE);
-  assert.deepEqual(findCredentials(t.replace(/"(hash)":"[0-9a-f]{64}"/g, ''), { limit: 10_000_000 }), []);
+  // 1.4.0 adoption: the check is the response mask itself, run over what each Mock answer shows: it must leave every scenario of every vertical untouched
+  for (const [vname, v] of Object.entries(MOCK_TABLE.verticals)) for (const sc of v.scenarios) { const shown = mockState(MOCK_TABLE, vname, sc.id); assert.equal(JSON.stringify(maskDeep(shown)), JSON.stringify(shown), `${vname}/${sc.id}`); }
   assert.deepEqual(scanHosts(t), []);
   assert.ok(!/MOCK-/.test(t));
   for (const v of Object.values(MOCK_TABLE.verticals)) for (const sc of v.scenarios) { assert.equal(sc.state.proof.valuesFound, 0); assert.equal(sc.state.proof.selfTest.detected, true); }
