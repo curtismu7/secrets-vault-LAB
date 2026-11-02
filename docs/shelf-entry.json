@@ -4,7 +4,7 @@
       "id": "secrets-vault-lab",
       "name": "Secrets Vault LAB",
       "kind": "Demo",
-      "description": "A per-user credential vault (strictly self-service, no administrator override, real AES-256-GCM, injected at request time by a simulated gateway so the backend logs who actually acted, merge-edit, staged delete purged after 24 hours, 500 entries and 64 KB bounds) and secret store management over five mock providers (AWS, GCP, Azure, Delinea, CyberArk: separate read and write grants, audit, nightly re-sync, metadata only with the value fetched live and never stored): a simulation of the 2026-11-02 Ping release claims. Mock tables, or a Live local engine with a lab clock you move. Every product claim is UNVERIFIED on our tenant.",
+      "description": "A per-user credential vault (self-service, no administrator override, real AES-256-GCM, injected by a simulated gateway) and secret store management over five mock providers (AWS, GCP, Azure, Delinea, CyberArk). Mock or Live mode. Every product claim is UNVERIFIED on our tenant.",
       "url": "http://localhost:7450",
       "healthPath": "/api/health",
       "composeFile": "secrets-vault-LAB/docker-compose.yml",
