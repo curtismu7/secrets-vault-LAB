@@ -7,6 +7,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { U1, ADMIN, get, post, live, rawHttp, withServer } from './helpers.js';
+import { MOCK_TABLE } from '../src/mockTable.js';
 
 const hunter = ['hunter', '2xyz'].join('');
 const capture = () => {
@@ -87,4 +88,21 @@ test('the workspace-id middleware refuses a credential-looking id with 400 bad_w
     assert.equal(workspaces.size(), 0, 'info routes took no slot either');
     assert.equal((await get(url, '/api/nope', ADMIN, { 'x-workspace': ids[0] })).status, 404, 'an unknown route is a 404, not a workspace error');
   });
+});
+
+// The response mask is the LAST line of defence: it must work on an answer whose text no input cleaner ever saw. A Mock table carrying credential-shaped text (in a scenario
+// sentence, under the visitor-typable keys "notes" and "name", under a credential-shaped object key) is served through the real app; none of it may come back.
+test('the response mask works on its own: credential-shaped text in the served Mock table is masked in values and in object keys, whatever key it sits under', async () => {
+  const PW = ['pass', 'word'].join(''); const secret = hunter; const typed = `${PW} ${secret}`;
+  const table = structuredClone(MOCK_TABLE);
+  const sc = table.verticals.finance.scenarios[0];
+  sc.say = `see ${typed} here`; sc.state.probe = { notes: typed, name: typed, text: typed, [`${PW}: ${secret}`]: 1, list: [typed], hash: 'a'.repeat(64) };
+  await withServer(async (url) => {
+    const r = await get(url, '/api/state?mode=mock', U1); const t = await r.text();
+    assert.equal(r.status, 200); assert.ok(!t.includes(secret), t.slice(0, 200));
+    const body = JSON.parse(t);
+    assert.equal(body.scenario.say.includes('[masked:'), true); assert.equal(body.state.probe.notes.includes('[masked:'), true); assert.equal(body.state.probe.name.includes('[masked:'), true);
+    assert.equal(body.state.probe.hash, 'a'.repeat(64), 'an opaque name the lab writes itself is left alone');
+    assert.equal(Object.keys(body.state.probe).length, 6);
+  }, { table });
 });
