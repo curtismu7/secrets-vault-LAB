@@ -1,6 +1,6 @@
 // Shared by the echo sweeps: ONE value typed into every free-text field, key name, path segment, query, header and error-path input of every endpoint.
 // Returns the text of every answer (status line, body, headers). Nothing here asserts; the callers search the texts.
-import { C, U1, ADMIN, get, post, put, live } from './helpers.js';
+import { C, U1, ADMIN, get, post, put, live, rawHttp } from './helpers.js';
 
 export const AWS = `aws:${C.castAwsPrefix}/db-admin`;
 export async function sweepAll(url, v, id) {
@@ -47,6 +47,19 @@ export async function sweepAll(url, v, id) {
     for (const h of [{ 'x-workspace': clean }, { traceparent: clean }, { 'x-lab-actor': clean }]) {
       const r = await post(url, '/api/clock', live({ clock: { minutes: 1 } }), h['x-lab-actor'] ? clean : U1, h['x-lab-actor'] ? {} : h);
       texts.push(`W ${r.status} ${await r.text()} ${[...r.headers.values()].join(' ')}`);
+    }
+    // more headers on a read and a write: Origin, Accept, Content-Type charset, Authorization, Cookie, Referer, User-Agent, X-Forwarded-For, Host (node:http can set it)
+    const ascii = v.slice(0, 80).replace(/[^\x21-\x7e]/g, '?');
+    for (const h of [{ origin: ascii }, { accept: ascii }, { 'content-type': `application/json; charset=${ascii}` }, { authorization: `Bearer ${ascii}` }, { cookie: `sid=${ascii}` }, { referer: ascii }, { 'user-agent': ascii }, { 'x-forwarded-for': ascii }, { 'x-forwarded-host': ascii }]) {
+      for (const m of ['GET', 'POST']) {
+        const r = await fetch(`${url}${m === 'GET' ? '/api/state?mode=live' : '/api/clock'}`, { method: m, headers: { 'content-type': 'application/json', 'x-lab-actor': U1, ...(m === 'POST' ? { origin: url } : {}), ...h }, ...(m === 'POST' ? { body: JSON.stringify(live({ clock: { minutes: 1 } })) } : {}) });
+        texts.push(`HDR ${m} ${r.status} ${await r.text()} ${[...r.headers.values()].join(' ')}`);
+      }
+    }
+    { const u = new URL(url); const r = await rawHttp(`${url}/api/state?mode=live`, { headers: { host: ascii.replace(/[^A-Za-z0-9.:-]/g, '-') || 'x', 'x-lab-actor': U1 } }); texts.push(`HOST ${r.status} ${r.text} ${Object.values(r.headers).join(' ')} ${u.port}`); }
+    // the mode, vertical and scenario fields themselves, on a write and a read
+    for (const body of [{ mode: v, vertical: 'finance', clock: { minutes: 1 } }, { mode: 'live', vertical: v, clock: { minutes: 1 } }, { mode: 'mock', vertical: 'finance', clock: { minutes: 1 } }, { mode: ['live', v], clock: {} }, { mode: { [v]: v } }]) {
+      const r = await post(url, '/api/clock', body, U1); texts.push(`MV ${r.status} ${await r.text()} ${[...r.headers.values()].join(' ')}`);
     }
     return texts;
 
