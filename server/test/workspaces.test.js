@@ -38,10 +38,12 @@ import { U1, get, post, live, withServer } from './helpers.js';
 
 test('F: credential-looking workspace ids are refused: a run of 24 hex digits, a credential-word prefix, a keyword read with hyphens as spaces, no letter at all', () => {
   const j = (...p) => p.join('-'); // assembled at run time: no credential-looking literal sits in the repository
-  const refused = [j('pw', 'hunter2xyz'), j('sk', 'abcdefghijklmnop1234'), j('password', 'hunter2xyz'), j('token', 'abcdef1234'), j('api', 'key', 'hunter2xyz'), j('secret', 'hunter2xyz'), j('ghp', 'abcdef123456'), 'akia-abcdef', 'eyj-abc', '0123456789abcdef01234567', 'w-0123456789abcdef01234567',
-    `x-${'a'.repeat(24)}`, '123456789', '0', 'pw', 'pass-1', j('xoxb', '1234'), j('glpat', 'abcdef12'), j('ya29', 'abcdefgh'), j('bearer', 'hunter2xyz'), 'ab-cd-ef-gh-ij-kl-mn-op-1'];
+  const refused = [j('pw', 'hunter2xyz'), j('sk', 'abcdefghijklmnop1234'), j('password', 'hunter2xyz'), j('token', 'abcdef1234'), j('api', 'key', 'hunter2xyz'), j('secret', 'hunter2xyz'), j('ghp', 'abcdef123456'), 'akia-abcdef', '0123456789abcdef01234567', 'w-0123456789abcdef01234567',
+    `x-${'a'.repeat(24)}`, '123456789', '0', j('xoxb', '1234'), j('glpat', 'abcdef12'), j('bearer', 'hunter2xyz')];
   for (const id of refused) assert.equal(workspaceFrom({ headers: { 'x-workspace': id } }), null, id);
-  const accepted = ['default', 'abc-1', 'lab-7', 'w-0123456789abcdef', `w${'a'.repeat(23)}`, 'hid200b', 'echo-ghp-x', 'my-workspace', 'a', 'pwa-1', 'skate-park-2', 'tokens-r-us', 'passenger-7'];
+  const accepted = ['default', 'abc-1', 'lab-7', 'w-0123456789abcdef', `w${'a'.repeat(23)}`, 'hid200b', 'echo-ghp-x', 'my-workspace', 'a', 'pwa-1', 'skate-park-2', 'tokens-r-us', 'passenger-7',
+    // 1.4.0 adoption: the shared isCredentialId decides, and it does not call these credentials (the old app rules refused them): a bare 'pw', 'pass-1', a short 'eyj-' or 'ya29-' prefix, and a hyphenated run of two-letter words
+    'eyj-abc', 'pw', 'pass-1', j('ya29', 'abcdefgh'), 'ab-cd-ef-gh-ij-kl-mn-op-1'];
   for (const id of accepted) assert.equal(workspaceFrom({ headers: { 'x-workspace': id } }), id, id);
   assert.equal(credentialLookingId('a'.repeat(23)), false); assert.equal(credentialLookingId('a'.repeat(24)), true, 'exactly 24 hex digits is refused, 23 is not');
 });

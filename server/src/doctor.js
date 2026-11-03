@@ -7,7 +7,6 @@ import { VERTICALS, unfilled } from './cast.js';
 import { buildStory, rawStory } from './story.js';
 import { Engine } from './engine.js';
 import { EXPECTED, buildMockTable, runScenario, scenarioList } from './scenarios.js';
-import { findCredentials } from './credentials.js';
 import { maskDeep } from './mask.js';
 import { modeFrom } from './config.js';
 import { DIAGRAM_NAMES, buildDiagram } from './diagramData.js';
@@ -60,10 +59,11 @@ export async function runChecks({ env = process.env, table = MOCK_TABLE } = {}) 
   add('story-tokens', holes.length ? 'fail' : 'pass', holes.length ? `unfilled {{tokens}}: ${[...new Set(holes)].join(', ')}` : 'every {{cast}} token is filled');
   const badVert = Object.entries(VERTICALS).filter(([, v2]) => unfilled(text, v2).length).map(([k]) => k);
   add('verticals', badVert.length ? 'fail' : 'pass', badVert.length ? `verticals missing a token: ${badVert.join(', ')}` : `${Object.keys(VERTICALS).length} vertical packs fill every token`);
-  const filled = JSON.stringify(Object.keys(VERTICALS).map((k) => buildStory(VERTICALS[k], k)));
+  const stories = Object.keys(VERTICALS).map((k) => buildStory(VERTICALS[k], k));
+  const filled = JSON.stringify(stories);
   const hosts = scanHosts(filled);
   add('story-hosts', hosts.length ? 'fail' : 'pass', hosts.length ? `non-reserved hosts: ${hosts.join(', ')}` : 'every host in the story data is .invalid or .example');
-  const keys = scanKeys(filled); const creds = findCredentials(filled, { limit: 10_000_000 });
+  const keys = scanKeys(filled); const creds = stories.filter((st) => JSON.stringify(maskDeep(st)) !== JSON.stringify(st)); // the response mask would change it
   add('story-keys', keys.length || creds.length ? 'fail' : 'pass', keys.length || creds.length ? 'credential-shaped text in the story data' : 'no credential-shaped value anywhere in the story data');
   const story = buildStory(VERTICALS.finance, 'finance');
   add('masking', JSON.stringify(maskDeep(story)) === JSON.stringify(story) ? 'pass' : 'fail', 'the response mask leaves the story untouched (it only changes credential-shaped values)');

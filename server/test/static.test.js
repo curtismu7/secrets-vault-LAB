@@ -37,9 +37,12 @@ test('E: the page shell answers only extension-less non-dotfile GET paths; real 
   try {
     await withServer(async (url) => {
       for (const p of ['/', '/vault', '/stores/secrets', '/a/b/c', '/vault/']) {
-        const r = await fetch(`${url}${p}`); const t = await r.text();
+        // 1.4.0 adoption: the page shell goes to a client that ACCEPTS text/html (a browser); the old test sent no Accept header
+        const r = await fetch(`${url}${p}`, { headers: { accept: 'text/html' } }); const t = await r.text();
         assert.equal(r.status, 200, p); assert.match(r.headers.get('content-type'), /^text\/html/); assert.ok(t.includes('<title>shell</title>'));
       }
+      for (const p of ['/', '/vault']) await isJson404(await fetch(`${url}${p}`, { headers: { accept: 'application/json' } }), `GET ${p} without text/html`);
+      assert.equal((await fetch(`${url}/vault`, { method: 'HEAD', headers: { accept: 'text/html' } })).status, 200, 'HEAD too');
       const js = await fetch(`${url}/assets/app.js`); assert.equal(js.status, 200); assert.match(js.headers.get('content-type'), /javascript/); assert.equal(await js.text(), 'console.log(1)');
       const idx = await fetch(`${url}/index.html`); assert.equal(idx.status, 200);
     }, { webDist: dist });
@@ -90,7 +93,8 @@ const ROUTES = [
   ['POST', '/api/stores/secrets', null], ['PUT', '/api/stores/secrets', 'GET, HEAD, POST'], ['GET', '/api/stores/read', 'POST'], ['GET', '/api/stores/update', 'POST'],
   ['GET', '/api/stores/rotate', 'POST'], ['GET', '/api/stores/delete', 'POST'], ['GET', '/api/stores/recover', 'POST'], ['GET', '/api/stores/purge', 'POST'],
   ['GET', '/api/stores/connection', 'POST'], ['GET', '/api/stores/provider-change', 'POST'], ['GET', '/api/stores/resync', 'POST'], ['GET', '/api/policies', 'POST'], ['GET', '/api/policies/x/revoke', 'POST'],
-  ['GET', '/api/clock', 'POST'], ['GET', '/api/proof/run', 'POST'], ['GET', '/api/reset', 'POST'], ['PUT', '/api/governance', 'GET, HEAD'], ['DELETE', '/api/health', 'GET'],
+  ['GET', '/api/clock', 'POST'], ['GET', '/api/proof/run', 'POST'], ['GET', '/api/reset', 'POST'], ['PUT', '/api/governance', 'GET, HEAD'], ['DELETE', '/api/health', 'GET, HEAD'], // 1.4.0 adoption: the route table adds HEAD wherever GET is (was 'GET')
+ 
 ];
 test('E: a wrong method on a known API route is a 405 with Allow (literal table of 34 routes); a right method is not', async () => {
   assert.equal(ROUTES.length, 34);

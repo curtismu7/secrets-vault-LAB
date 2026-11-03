@@ -208,7 +208,9 @@ test('input rules: shapes, header names, line breaks, colons, empty values, excl
   assert.equal(mkc({ name: '' }), 'bad_name');
   assert.equal(mkc({ name: 'ab '.repeat(27).trim() }), 'ok', '80 characters is the most a name keeps');
   assert.equal(mkc({ name: 'ab '.repeat(30) }), 'bad_name', 'longer text is refused whole, never cut');
-  assert.equal(mkc({ name: 'a'.repeat(81) }), 'credential_shaped_text', 'a long unbroken run looks like a key and is refused, never echoed');
+  // 1.4.0 adoption: 81 repeated letters are not key-shaped for the shared masker (the old cleaner called any 32+ run a key): too long is the answer. A real key-like run is still refused.
+  assert.equal(mkc({ name: 'a'.repeat(81) }), 'bad_name', 'too long, refused whole, never cut');
+  assert.equal(mkc({ name: ['Zq9Xk2Lm8Rt4Vb7Nc1Hd5Fj3Gs6Pw0Y', 'abcd'].join('') }), 'credential_shaped_text', 'a long random run looks like a key and is refused, never echoed');
   assert.equal(mkc({ notes: 42 }), 'bad_notes');
 });
 

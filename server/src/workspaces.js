@@ -2,20 +2,17 @@
 // (vault, inventory, providers, audit, clock). Bounded in count and age; a new workspace is REFUSED at the cap instead of evicting another's.
 // The browser sends its id in X-Workspace (default "default"). Reset clears the current workspace only.
 import { Engine } from './engine.js';
-import { findCredentials } from './credentials.js';
+import { isCredentialId } from './mask.js';
 
-export const WORKSPACE_RE = /^[a-z0-9-]{1,40}$/;
+// 1 to 40 lower-case letters, digits and hyphens, with at least one letter (the page always makes ids with a letter; an all-digit id could be a PIN or a card number).
+export const WORKSPACE_RE = /^(?=[a-z0-9-]*[a-z])[a-z0-9-]{1,40}$/;
 export const DEFAULT_WORKSPACE = 'default';
 
 // A workspace id is echoed in the `workspace` field and in the hop headers, so one that LOOKS like a credential is refused (400 bad_workspace, never echoed).
-// Refused: no letter at all (the page always makes ids with a letter), a run of 24 or more hex digits, a credential-word prefix (sk-, pw-, token-, ...), and
-// anything the credential detectors find, read as typed and with its hyphens read as spaces ("password-hunter2xyz" is "password hunter2xyz"). A bare word
-// with no keyword ("hunter2xyz") cannot be told from a name and is accepted; the page says masking is a heuristic.
-const HEX_RUN = /[0-9a-f]{24,}/;
-const KEY_PREFIX = /^(?:sk|pk|rk|pw|pwd|pass|passwd|password|tok|token|secret|apikey|bearer|ghp|gho|ghu|ghs|ghr|github|glpat|xox[abprs]|akia|asia|eyj|ya29)(?:-|$)/;
-export function credentialLookingId(id) {
-  return !/[a-z]/.test(id) || HEX_RUN.test(id) || KEY_PREFIX.test(id) || findCredentials(id).length > 0 || findCredentials(id.replace(/-/g, ' ')).length > 0;
-}
+// The shared masker decides (isCredentialId): 24 or more hex digits, a credential-word prefix (sk-, pw-, token-, ...), a run of 24 or more letters and digits with a
+// digit, and anything its detectors find, also with hyphens read as spaces. A bare word with no keyword ("hunter2xyz") cannot be told from a name and is
+// accepted; the page says masking is a heuristic. The old name is kept for the callers.
+export const credentialLookingId = isCredentialId;
 
 export function workspaceFrom(req) {
   const raw = req.headers['x-workspace'];
