@@ -16,14 +16,18 @@ export default function useLab({ mode, vertical, scenario, actor }) {
   const ctx = useRef("");
   ctx.current = `${mode}|${vertical}|${actor}`;
 
-  const load = useCallback(() => {
-    if (!mode || (mode === "live" && !actor)) return Promise.resolve();
+  // A mode switch passes the engine's mode name directly: the state API takes "mock" or "live",
+  // never the toggle's source word, so the reload right after the switch cannot race the state update.
+  const load = useCallback((modeOverride) => {
+    const m = modeOverride || mode;
+    if (!m || (m === "live" && !actor)) return Promise.resolve();
     const mine = ++seq.current;
-    const q = `mode=${mode}&vertical=${encodeURIComponent(vertical)}${mode === "mock" && scenario ? `&scenario=${encodeURIComponent(scenario)}` : ""}`;
+    const q = `mode=${m}&vertical=${encodeURIComponent(vertical)}${m === "mock" && scenario ? `&scenario=${encodeURIComponent(scenario)}` : ""}`;
     return getJson(`/api/state?${q}`).then((j) => { if (mine === seq.current) { setData(j); setError(null); } }, (e) => { if (mine === seq.current) setError(e.message); });
   }, [mode, vertical, scenario, actor]);
   // Switching mode, vertical or person clears the page; switching only the scenario keeps the old one on screen until the new one arrives.
   // The context change also drops every load still in flight (bump the sequence number), even when no new load starts yet because the new vertical has no person.
+  // It is cleared BEFORE the caller's own reload: a stale in-flight answer for the old mode must never overwrite the new one.
   useEffect(() => { seq.current += 1; setData(null); setLast(null); }, [mode, vertical, actor]);
   useEffect(() => { load(); }, [load]);
 

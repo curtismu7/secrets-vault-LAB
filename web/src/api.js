@@ -21,3 +21,10 @@ export const putJson = (url, payload) => sendJson("PUT", url, payload);
 export const probe = (url, as) => workspaceFetch(url, { method: "GET", as }).then(async (r) => ({ status: r.status, body: await objectBody(r) }));
 
 export const resetWorkspace = () => workspaceFetch("/api/reset", { method: "POST", body: "{}" }).then((r) => r.ok);
+
+// Rule 19: POST /api/mode {source:"mock"|"real"}. Returns { ok, status, body } (like sendJson): a refused
+// switch comes back as data, never an exception.
+export async function setMode(source) {
+  const r = await workspaceFetch("/api/mode", { method: "POST", body: JSON.stringify({ source }) });
+  return { ok: r.ok, status: r.status, body: await objectBody(r) };
+}

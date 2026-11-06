@@ -11,7 +11,7 @@ import ClockBar from "./components/ClockBar";
 import ScenarioBar from "./components/ScenarioBar";
 import ErrorBoundary from "./components/ErrorBoundary";
 import useLab from "./hooks/useLab";
-import { getJson, resetWorkspace } from "./api";
+import { getJson, resetWorkspace, setMode } from "./api";
 import { setActor } from "./workspace";
 
 export const TABS = [
@@ -72,7 +72,18 @@ export default function App() {
     window.addEventListener("hashchange", on);
     return () => window.removeEventListener("hashchange", on);
   }, []);
-  const setMode = (m) => { setModeState(m); try { window.localStorage.setItem(MODE_KEY, m); } catch { /* storage blocked */ } };
+  const applyMode = (m) => { setModeState(m); try { window.localStorage.setItem(MODE_KEY, m); } catch { /* storage blocked */ } };
+  // Rule 19: the Mock/Real toggle POSTs the source to the server's runtime mode, then reloads the page's data.
+  // A refusal (the 409 body) is data, not an exception; it is shown where the reset note is shown.
+  const switchSource = useCallback(async (source) => {
+    const next = source === "real" ? "live" : "mock";
+    if (next === mode) return;
+    const r = await setMode(source);
+    if (!r.ok) { setResetMsg(r.body?.detail || r.body?.message || `Could not switch to ${source}.`); return; }
+    applyMode(next);
+    setResetSignal((n) => n + 1);
+    await lab.reload(next === "real" ? "live" : "mock");
+  }, [mode, lab.reload]); // eslint-disable-line react-hooks/exhaustive-deps
   const pickTheme = (next) => {
     try { if (next === "auto") localStorage.removeItem(THEME_KEY); else localStorage.setItem(THEME_KEY, next); } catch { /* not remembered */ }
     setTheme(next);
@@ -128,8 +139,8 @@ export default function App() {
           <div className="head__tools">
             <ShelfLink />
             <div className="seg" role="group" aria-label="Mode">
-              <button type="button" aria-pressed={mode === "mock"} onClick={() => setMode("mock")} data-testid="mode-mock">Mock</button>
-              <button type="button" aria-pressed={mode === "live"} onClick={() => setMode("live")} data-testid="mode-live">Live</button>
+              <button type="button" aria-pressed={mode === "mock"} onClick={() => switchSource("mock")} data-testid="mode-mock">Mock</button>
+              <button type="button" aria-pressed={mode === "real" || mode === "live"} onClick={() => switchSource("real")} data-testid="mode-real">Real</button>
             </div>
             <span className="chip" data-testid="mode">Mode: {mode || "..."}{mode === "live" ? " (local engine, loopback)" : mode === "mock" ? " (tables)" : ""}</span>
             {!presenter && story && (

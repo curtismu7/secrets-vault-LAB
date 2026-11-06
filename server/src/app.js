@@ -29,6 +29,8 @@ const isObj = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
 const QUERY_OK = ['mode', 'vertical', 'scenario', 'name'];
 
 export function createApp({ health = createHealth(), configFile = CONFIG, workspaces = createWorkspaces(), table = MOCK_TABLE, webDist = WEB_DIST, env = process.env } = {}) {
+  // The runtime server-side mode (rule 19): the source the toggle switches. It starts at the configured default.
+  let currentSource = () => defaultMode();
   const app = express();
   app.disable('x-powered-by');
   // Response mask: EVERY JSON answer (API, 404, errors) is masked for credential-shaped values and keys, whatever path produced it.
@@ -82,7 +84,18 @@ export function createApp({ health = createHealth(), configFile = CONFIG, worksp
     if (typeof name !== 'string' || !DIAGRAM_NAMES.includes(name)) return res.status(404).json({ error: 'unknown_diagram' });
     return res.json(buildDiagram(castFor(req), name));
   });
-  on('get', '/info', (_req, res) => { noStore(res); res.json({ mode: defaultMode(), modes: ['mock', 'live'], simulated: true, release: '2026-11-02', unverified: true }); });
+  on('get', '/info', (_req, res) => { noStore(res); const src = currentSource(); res.json({ mode: src === 'real' ? 'live' : src, modes: ['mock', 'live'], ...rule19View(), simulated: true, release: '2026-11-02', unverified: true }); });
+
+  // Rule 19: the Mock/Real toggle's runtime server-side mode. source "mock" is the recorded tables; "real" is the
+  // lab's Live engine (loopback-only, nothing leaves the machine), so realAvailable is always true.
+  const rule19View = () => ({ source: currentSource(), realAvailable: true, realReason: null });
+  on('get', '/mode', (_req, res) => { noStore(res); res.json(rule19View()); });  on('post', '/mode', (req, res) => {
+    noStore(res);
+    const b = isObj(req.body) ? req.body : {};
+    if (Object.keys(b).length !== 1 || !['mock', 'real'].includes(b.source)) return res.status(400).json({ error: 'bad_mode', detail: 'body must be exactly {source: "mock" or "real"}' });
+    currentSource = () => b.source; // runtime server-side state: every later read sees the switched mode
+    return res.json(rule19View());
+  });
 
   // The engine for a read: the workspace's own, or a fresh one that is never stored.
   const readEngine = (req, res) => {
@@ -100,7 +113,7 @@ export function createApp({ health = createHealth(), configFile = CONFIG, worksp
     const id = req.workspace;
     noStore(res);
     if (!queryOk(req, res) || !verticalOk(req, res)) return;
-    const mode = modeOf(req.query.mode); if (!mode) return res.status(400).json({ error: 'bad_mode', detail: 'mode must be mock or live' });
+    const mode = modeOf(req.query.mode === 'real' ? 'live' : req.query.mode); if (!mode) return res.status(400).json({ error: 'bad_mode', detail: 'mode must be mock or live' });
     const vertical = verticalOf(req);
     if (mode === 'mock') {
       const sc = req.query.scenario;

@@ -25,6 +25,31 @@ test('health answers demo-health/1, GET only, with no detail; info says simulate
   });
 });
 
+test('rule 19: POST /api/mode {source} switches the server-side mode at runtime; /api/info follows; the body must be exactly {source}', async () => {
+  await withServer(async (url) => {
+    // Before the switch: the info's source follows the configured default, and the live engine is reachable (realAvailable: true).
+    const before = await (await get(url, '/api/info', null)).json();
+    assert.equal(before.realAvailable, true);
+    // Switch to real (the lab's Live engine, loopback-only) and read again.
+    const toReal = await post(url, '/api/mode', { source: 'real' }, null);
+    assert.equal(toReal.status, 200);
+    const afterReal = await (await get(url, '/api/info', null)).json();
+    assert.equal(afterReal.source, 'real'); assert.equal(afterReal.realAvailable, true);
+    assert.equal(afterReal.realReason, null);
+    // Switch back to mock.
+    const toMock = await post(url, '/api/mode', { source: 'mock' }, null);
+    assert.equal(toMock.status, 200);
+    const afterMock = await (await get(url, '/api/info', null)).json();
+    assert.equal(afterMock.source, 'mock'); assert.equal(afterMock.mode, 'mock');
+    // The body must be exactly {source}: an extra key, a junk value, a missing value and a non-object are 400 without echoing the value.
+    for (const body of [{ source: 'mock', extra: 1 }, { source: 'zzz-secret-value' }, {}, 'x', [1]]) {
+      const r = await post(url, '/api/mode', body, null);
+      assert.equal(r.status, 400, JSON.stringify(body));
+      assert.ok(!(await r.text()).includes('zzz-secret-value'));
+    }
+  });
+});
+
 test('the caller must be named: a missing or unknown X-Lab-Actor is 401 on state, reads and writes (never defaulted to someone)', async () => {
   await withServer(async (url) => {
     for (const a of [null, 'nobody', '__proto__', 'x'.repeat(300)]) {
