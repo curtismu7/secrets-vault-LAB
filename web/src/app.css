@@ -108,3 +108,6 @@ label.check { justify-content: flex-start; }
 .tbl--xwide { min-width: 880px; }
 .tbl--xwide td:first-child { overflow-wrap: break-word; word-break: normal; min-width: 220px; }
 .pat-scroll { overflow-x: auto; max-width: 100%; }
+
+.shell-theme { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: var(--text); }
+.shell-theme select { min-height: 32px; padding: 4px 8px; }
