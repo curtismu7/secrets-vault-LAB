@@ -19,6 +19,7 @@ import { createWorkspaces, workspaceFrom } from './workspaces.js';
 import { Engine } from './engine.js';
 import { liveState, mockState, onRoster, runAction } from './service.js';
 import { maskDeep } from './mask.js';
+import { shelfInfo } from './shelfLink.js';
 import { isPageAddress, charsetProblem, buildMethodTable, methodNotAllowed } from './shared/hygiene.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -27,7 +28,7 @@ const CONFIG = process.env.CUSTOMER_CONFIG || path.resolve(HERE, '../../customer
 const isObj = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
 const QUERY_OK = ['mode', 'vertical', 'scenario', 'name'];
 
-export function createApp({ health = createHealth(), configFile = CONFIG, workspaces = createWorkspaces(), table = MOCK_TABLE, webDist = WEB_DIST } = {}) {
+export function createApp({ health = createHealth(), configFile = CONFIG, workspaces = createWorkspaces(), table = MOCK_TABLE, webDist = WEB_DIST, env = process.env } = {}) {
   const app = express();
   app.disable('x-powered-by');
   // Response mask: EVERY JSON answer (API, 404, errors) is masked for credential-shaped values and keys, whatever path produced it.
@@ -55,6 +56,7 @@ export function createApp({ health = createHealth(), configFile = CONFIG, worksp
   });
   api.use(express.json({ limit: '200kb' }));
   api.use('/health', health.router);
+  api.get('/shelf', (_req, res) => { noStore(res); res.json(shelfInfo(env)); });
   const verticalOf = (req) => verticalFrom(req.body?.vertical ?? req.query.vertical);
   // An unknown vertical is refused (400), never silently replaced by the default one. Fixed text, the value is never echoed.
   const verticalOk = (req, res) => {

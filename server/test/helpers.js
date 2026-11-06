@@ -19,10 +19,10 @@ export const run = (e, op, actorId, params) => perform(e, op, e.roster.get(actor
 export const code = (r) => (r.ok ? 'ok' : r.code);
 export const mk = (e, actorId, o = {}) => { const r = run(e, 'vaultCreate', actorId, { entry: { name: 'Ledger bearer', targetId: C.castT1, shape: 'bearer', generate: true, ...o } }); if (!r.ok) throw new Error(`create failed: ${r.code}`); return r.result.entryId; };
 
-export async function withServer(fn, { configFile = '/nonexistent/customer.config.json', workspaces = createWorkspaces(), webDist, table } = {}) {
+export async function withServer(fn, { configFile = '/nonexistent/customer.config.json', workspaces = createWorkspaces(), webDist, table, env } = {}) {
   const health = createHealth({ runChecks: async () => [], intervalMs: 3_600_000 });
   await health.ready;
-  const { server, url } = await startHttpServer({ port: 0, host: '127.0.0.1', app: createApp({ health, configFile, workspaces, ...(webDist ? { webDist } : {}), ...(table ? { table } : {}) }) });
+  const { server, url } = await startHttpServer({ port: 0, host: '127.0.0.1', app: createApp({ health, configFile, workspaces, ...(webDist ? { webDist } : {}), ...(table ? { table } : {}), ...(env ? { env } : {}) }) });
   try { await fn(url.replace(/\/$/, ''), { workspaces }); } finally { health.stop(); await new Promise((res) => server.close(res)); }
 }
 const hdr = (url, actor, extra = {}) => ({ 'content-type': 'application/json', origin: url, ...(actor ? { 'x-lab-actor': actor } : {}), ...extra });

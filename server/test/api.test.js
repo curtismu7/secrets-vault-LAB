@@ -245,3 +245,13 @@ test('an unknown vertical is a 400 and an unknown diagram a 404 on every route t
     assert.equal((await get(url, '/api/diagram', U1)).status, 200); assert.equal((await get(url, '/api/diagram?name=secret-store-no-copy&vertical=health', U1)).status, 200);
   });
 });
+
+test('GET /api/shelf answers the shelf URL (null when unconfigured)', async () => {
+  await withServer(async (url) => {
+    const res = await fetch(`${url}/api/shelf`);
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.deepEqual(Object.keys(body), ['shelfUrl']);
+    assert.equal(body.shelfUrl, null);
+  }, { env: {} });
+});
