@@ -10,6 +10,7 @@ services:
     ports:
       - "127.0.0.1:${HOST_PORT:-7450}:7450"
     environment:
+      SHELF_URL: ${SHELF_URL:-http://127.0.0.1:4400}
       PORT: "7450"
       SVLAB_BIND: 0.0.0.0
       SVL_LAB_MODE: ${SVL_LAB_MODE:-mock}

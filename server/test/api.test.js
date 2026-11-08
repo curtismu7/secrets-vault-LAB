@@ -280,3 +280,12 @@ test('GET /api/shelf answers the shelf URL (null when unconfigured)', async () =
     assert.equal(body.shelfUrl, null);
   }, { env: {} });
 });
+
+test('GET /api/shelf is reachable with no web build and returns SHELF_URL (trailing slash trimmed); POST is refused', async () => {
+  await withServer(async (url) => {
+    const res = await fetch(`${url}/api/shelf`);
+    assert.equal(res.status, 200);
+    assert.deepEqual(await res.json(), { shelfUrl: 'https://shelf.example:8443' });
+    assert.notEqual((await post(url, '/api/shelf', {})).status, 200);
+  }, { env: { SHELF_URL: 'https://shelf.example:8443/' } });
+});
