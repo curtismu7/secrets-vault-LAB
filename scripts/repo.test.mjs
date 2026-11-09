@@ -69,7 +69,7 @@ test('README follows the README standard: title ends in LAB, plain Tier and Repo
   const r = read('README.md');
   assert.match(r.split('\n')[0], /^# .* LAB$/);
   assert.match(r, /^Tier: Demo$/m);
-  assert.match(r, /^Repo: https:\/\/github\.com\/ping-sandbox\/secrets-vault-LAB$/m);
+  assert.match(r, /^Repo: https:\/\/github\.com\/curtismu7\/secrets-vault-LAB$/m);
   for (const h of ['Run from a clone', 'Settings file', 'What to do if the port is taken', 'Mock and live modes', 'Health, doctor and reset', 'Docker', 'Tests', 'Troubleshooting', 'Ownership', 'What is simulated']) assert.match(r, new RegExp(`^## .*${h}`, 'mi'), h);
   assert.match(r, /lsof -iTCP:7450 -sTCP:LISTEN -n -P/);
   assert.match(r, /PORT=<other port> npm start/);
