@@ -3,7 +3,7 @@
 A simulation of Ping's User Vault and Secret Store Management release claims: a private credential store per person, injected into that person's backend calls at request time so the backend sees who actually acted, and one inventory and one read/write policy over five enterprise secret managers without becoming another copy of them.
 
 Tier: Demo
-Repo: https://github.com/ping-sandbox/secrets-vault-LAB
+Repo: https://github.com/curtismu7/secrets-vault-LAB
 Catalog: D108
 
 **Tier: Demo.** Source: the Ping ID4AI Workforce H2 2026 deck, slides 42 and 43 (and 36 and 35, read only), release 2026-11-02. **Every product claim is a Ping release claim, UNVERIFIED on our tenant.** Nothing here calls a real secret manager, key service, gateway, backend, identity provider or tenant, and nothing leaves your machine. Every credential is a lab mock, and no API ever returns a stored value.
