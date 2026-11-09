@@ -56,3 +56,9 @@ test('the container is locked down: read-only fs, no capabilities, no new privil
 test('docker-compose.yml passes a usable SHELF_URL into the container (the shelf button needs it)', () => {
   assert.match(here('docker-compose.yml'), /^\s*SHELF_URL: \$\{SHELF_URL:-http:\/\/127\.0\.0\.1:4400\}\s*$/m);
 });
+
+test('docker-compose.yml allows the lab-proxy name for this lab by default, never the bare proxy name', () => {
+  const compose = here('docker-compose.yml');
+  assert.match(compose, /LAB_ALLOWED_HOSTS: \$\{LAB_ALLOWED_HOSTS:-secrets-vault-lab\.local\.ping-devops\.com\}/);
+  assert.doesNotMatch(compose, /LAB_ALLOWED_HOSTS:-(?:[^}]*,)?\s*local\.ping-devops\.com\s*[,}]/);
+});

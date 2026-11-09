@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { isLoopbackHost, assertBindAllowed, bindHost, portProblem, resolvePort, isReservedHost, scanHosts, scanKeys, cleanText, hostCheck, sameOriginWrites } from '../src/safety.js';
+import { isLoopbackHost, assertBindAllowed, bindHost, portProblem, resolvePort, isReservedHost, scanHosts, scanKeys, cleanText, hostCheck, sameOriginWrites, parseAllowedHosts, makeHostCheck, makeSameOriginWrites } from '../src/safety.js';
 
 test('loopback names', () => {
   for (const h of ['localhost', '127.0.0.1', '127.9.9.9', '::1', '[::1]']) assert.ok(isLoopbackHost(h), h);
@@ -81,4 +81,34 @@ test('review fixes: octets above 255 are not loopback; 4840 is reserved; control
   const f = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'pad-')), 'customer.config.json');
   fs.writeFileSync(f, JSON.stringify({ cast: { brand: 'Acme\u202eevil' } }));
   assert.ok(!/\u202e/.test(loadCast(f).castBrand));
+});
+
+// Behind the family lab-proxy (https://local.ping-devops.com:8443): Host is this lab's LAB_ALLOWED_HOSTS name with its port,
+// the browser's Origin is the proxy's, and the proxy says so in X-Forwarded-Host/-Proto.
+test('lab-proxy: LAB_ALLOWED_HOSTS parsing, launcher Host, proxied writes, and what stays refused', () => {
+  assert.deepEqual([...parseAllowedHosts({})], []);
+  assert.deepEqual([...parseAllowedHosts({ LAB_ALLOWED_HOSTS: ' Secrets-Vault-Lab.local.ping-devops.com , ' })], ['secrets-vault-lab.local.ping-devops.com']);
+  for (const bad of ['a.example:7450', 'https://a.example', 'a b']) assert.throws(() => parseAllowedHosts({ LAB_ALLOWED_HOSTS: bad }), /not a host name/);
+  const name = 'secrets-vault-lab.local.ping-devops.com';
+  const opts = { allowed: parseAllowedHosts({ LAB_ALLOWED_HOSTS: name }), port: 7450 };
+  const hc = makeHostCheck(opts);
+  const sw = makeSameOriginWrites(opts);
+  // launcher Host accepted; loopback still accepted
+  assert.ok(run(hc, { headers: { host: `${name}:7450` } }).next);
+  assert.ok(run(hc, { headers: { host: '127.0.0.1:7450' } }).next);
+  // a Host outside the set is refused: the bare proxy name, another name, the right name on another port; and unset = loopback only
+  for (const host of ['local.ping-devops.com:7450', 'local.ping-devops.com:8443', 'evil.example:7450', `${name}:7451`, name]) assert.equal(run(hc, { headers: { host } }).status, 403, host);
+  assert.equal(run(hostCheck, { headers: { host: `${name}:7450` } }).status, 403);
+  // proxied same-origin write accepted
+  const proxied = { host: `${name}:7450`, 'x-forwarded-host': 'local.ping-devops.com:8443', 'x-forwarded-proto': 'https', 'sec-fetch-site': 'same-origin' };
+  assert.ok(run(sw, { method: 'POST', headers: { ...proxied, origin: 'https://local.ping-devops.com:8443' } }).next);
+  // foreign Origin refused, and an Origin that does not match the forwarded host or scheme
+  for (const origin of ['https://evil.example', 'http://local.ping-devops.com:8443', 'https://local.ping-devops.com']) assert.equal(run(sw, { method: 'POST', headers: { ...proxied, origin } }).status, 403, origin);
+  assert.equal(run(sw, { method: 'POST', headers: { ...proxied, 'x-forwarded-proto': 'ftp', origin: 'ftp://local.ping-devops.com:8443' } }).status, 403);
+  assert.equal(run(sw, { method: 'POST', headers: { ...proxied, 'x-forwarded-host': '', origin: 'https://' } }).status, 403);
+  // forwarded headers on a loopback Host are ignored
+  assert.equal(run(sw, { method: 'POST', headers: { host: '127.0.0.1:7450', 'x-forwarded-host': 'local.ping-devops.com:8443', 'x-forwarded-proto': 'https', origin: 'https://local.ping-devops.com:8443' } }).status, 403);
+  assert.equal(run(sw, { method: 'POST', headers: { host: 'localhost:7450', 'x-forwarded-host': 'evil.example', 'x-forwarded-proto': 'https', origin: 'https://evil.example' } }).status, 403);
+  // and without LAB_ALLOWED_HOSTS the proxy's origin is never believed
+  assert.equal(run(sameOriginWrites, { method: 'POST', headers: { ...proxied, origin: 'https://local.ping-devops.com:8443' } }).status, 403);
 });

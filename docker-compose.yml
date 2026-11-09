@@ -14,6 +14,8 @@ services:
       PORT: "7450"
       SVLAB_BIND: 0.0.0.0
       SVL_LAB_MODE: ${SVL_LAB_MODE:-mock}
+      # The name the family lab-proxy (https://local.ping-devops.com:8443) sends in Host; loopback always works.
+      LAB_ALLOWED_HOSTS: ${LAB_ALLOWED_HOSTS:-secrets-vault-lab.local.ping-devops.com}
     read_only: true
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
