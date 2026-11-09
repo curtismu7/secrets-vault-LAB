@@ -7,7 +7,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import express from 'express';
-import { hostCheck, sameOriginWrites } from './safety.js';
+import { makeHostCheck, makeSameOriginWrites, parseAllowedHosts, resolvePort } from './safety.js';
 import { createHealth } from './health.js';
 import { buildRoster, loadCast, verticalFrom, VERTICALS } from './cast.js';
 import { defaultMode, modeOf } from './config.js';
@@ -28,15 +28,15 @@ const CONFIG = process.env.CUSTOMER_CONFIG || path.resolve(HERE, '../../customer
 const isObj = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
 const QUERY_OK = ['mode', 'vertical', 'scenario', 'name'];
 
-export function createApp({ health = createHealth(), configFile = CONFIG, workspaces = createWorkspaces(), table = MOCK_TABLE, webDist = WEB_DIST, env = process.env } = {}) {
+export function createApp({ health = createHealth(), configFile = CONFIG, workspaces = createWorkspaces(), table = MOCK_TABLE, webDist = WEB_DIST, env = process.env, allowedHosts = parseAllowedHosts(env), port = resolvePort(env) } = {}) {
   // The runtime server-side mode (rule 19): the source the toggle switches. It starts at the configured default.
   let currentSource = () => defaultMode();
   const app = express();
   app.disable('x-powered-by');
   // Response mask: EVERY JSON answer (API, 404, errors) is masked for credential-shaped values and keys, whatever path produced it.
   app.use((_req, res, next) => { const send = res.json.bind(res); res.json = (b) => send(maskDeep(b)); next(); });
-  app.use(hostCheck);
-  app.use(sameOriginWrites);
+  app.use(makeHostCheck({ allowed: allowedHosts, port }));
+  app.use(makeSameOriginWrites({ allowed: allowedHosts, port }));
   app.use((_req, res, next) => { res.set('X-Content-Type-Options', 'nosniff'); next(); });
   // Charset gate: a Content-Type charset other than utf-8 is a 415 with a FIXED body. charsetProblem returns a fixed code, never the value, and nothing is logged.
   app.use((req, res, next) => (charsetProblem(req.headers['content-type']) ? res.status(415).json({ error: 'unsupported_charset' }) : next()));
