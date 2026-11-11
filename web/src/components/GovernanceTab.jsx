@@ -22,7 +22,7 @@ function Proof({ proof, lab, mode, vertical }) {
         <h3 className="panel__sub">No-copy proof: not run for this state</h3>
         <p data-testid="proof-skipped">{proof.reason}</p>
         {proof.last && <p className="muted">The last full run (an earlier state of this workspace) found {proof.last.valuesFound} values in what it searched; it is no longer current.</p>}
-        <button type="button" className="primary" disabled={running || lab.readOnly} onClick={runNow} data-testid="proof-run">{running ? "Running..." : "Run the proof now"}</button>
+        <button type="button" disabled={running || lab.readOnly} onClick={runNow} data-testid="proof-run">{running ? "Running..." : "Run the proof now"}</button>
         {note && <p className="field-error" role="alert">{note}</p>}
       </section>
     );
