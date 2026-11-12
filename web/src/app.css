@@ -1,10 +1,22 @@
 /* App layout only. Colours, fonts, controls and the dark theme come from styles/standalone-ui.css (loaded first). Tokens only here:
    no colour literals, no dark-mode media queries, no forced priority, breakpoints 600px and 900px only. */
-.app { max-width: min(100%, 1600px); margin: 0 auto; padding: 0 0 32px; }
-.head { display: flex; gap: 16px; justify-content: space-between; align-items: flex-start; padding: 16px 0 8px; flex-wrap: wrap; }
-.head__title { margin: 0 0 4px; font-size: 24px; }
-.head__intro { margin: 0; max-width: 78ch; color: var(--text-body); font-size: 14px; line-height: 1.5; }
-.head__tools { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.app { max-width: 1100px; margin: 0 auto; padding: 0 0 32px; }
+/* App shell (STANDALONE-UI-PATTERNS.md section 1): Core Dark bar in both themes, Ping Red gradient rule. The bar bleeds
+   to the window edge (the .app frame is inside the padded body); brand and controls share a row, the tabs their own. */
+.shell-bar { display: flex; align-items: center; gap: 0.5rem 1rem; flex-wrap: wrap; padding: 0.6rem 1.25rem; margin: 0 -16px;
+  background: var(--box-dark); color: var(--on-box); border-bottom: 3px solid transparent; border-image: var(--accent-gradient) 1; }
+.shell-bar :focus-visible { outline: 3px solid var(--on-box); outline-offset: 2px; }
+.shell-brand { display: inline-flex; align-items: center; gap: 0.6rem; font-weight: 700; letter-spacing: 0.02em; }
+.shell-brand h1 { margin: 0; font-size: 1.1rem; color: var(--on-box); }
+.shell-logo { width: 1.9rem; height: 1.9rem; border-radius: 4px; background: var(--accent-gradient); color: var(--on-accent); display: inline-flex; align-items: center; justify-content: center; font-weight: 800; font-size: 0.8rem; }
+.shell-right { display: inline-flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; margin-left: auto; font-size: 0.85rem; }
+.shell-right .seg, .shell-right .shell-theme, .shell-right .inline { margin: 0; }
+.shell-right button { min-height: 32px; padding: 4px 10px; }
+.shell-right .shell-theme { color: var(--on-box); }
+.shell-intro { max-width: 46ch; color: var(--on-box); font-size: 0.8rem; line-height: 1.4; }
+.shell-nav { display: flex; flex-wrap: wrap; gap: 0.25rem 0.5rem; flex: 1 1 100%; border-bottom: none; margin: 0; }
+.shell-nav button { border-radius: 999px; white-space: nowrap; }
+.shell-nav button[aria-selected="true"] { background: var(--accent-gradient); color: var(--on-accent); border-color: transparent; }
 .chip { padding: 4px 10px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface-2); color: var(--text); font-size: 12px; font-weight: 600; }
 .seg, .toggles { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0; align-items: center; }
 .inline { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; }

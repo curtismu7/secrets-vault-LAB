@@ -98,7 +98,7 @@ function Controls2({ stepper, onReset, caption }) {
             {STEP_TIME_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
         </label>
-        {!active ? <button type="button" onClick={stepper.simulate} data-testid="simulate">Simulate</button> : (
+        {!active ? <button type="button" className="primary" onClick={stepper.simulate} data-testid="simulate">Simulate</button> : (
           <>
             <button type="button" onClick={stepper.prev} disabled={!paused}>Prev</button>
             {paused ? <button type="button" onClick={stepper.resume}>Resume</button> : <button type="button" onClick={stepper.pause}>Pause</button>}
@@ -126,7 +126,7 @@ export default function PatternDiagram({ pattern, resetSignal = 0 }) {
   return (
     <section className="pat" aria-label={pattern.title}>
       <h2 className="pat__title">{pattern.title} <ClaimTag /></h2>
-      <p className="head__intro">{pattern.intro}</p>
+      <p className="muted">{pattern.intro}</p>
       <Controls2 stepper={stepper} onReset={reset} caption={step ? step.label : ""} />
       {step && (
         <article className="panel" data-testid="pattern-now">
