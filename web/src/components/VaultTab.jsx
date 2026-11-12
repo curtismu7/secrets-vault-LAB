@@ -103,7 +103,7 @@ function EditPanel({ entry, state, lab }) {
       </div>
       <p className="muted">Leave the secret fields BLANK to keep the stored value. A field you fill in replaces only that field.</p>
       <SecretFields shape={entry.shape} v={v} set={setV} disabled={off} prefix="ed" />
-      <div className="seg"><button type="button" className="primary" disabled={off} onClick={save} data-testid="ed-save">Save changes</button></div>
+      <div className="seg"><button type="button" disabled={off} onClick={save} data-testid="ed-save">Save changes</button></div>
       {entry.status !== "active" && <p className="muted">A staged entry cannot be edited: restore it first.</p>}
       {msg && <p className={msg.ok ? "" : "field-error"} role={msg.ok ? "status" : "alert"} data-testid="edit-message">{visible(msg.text)}</p>}
       <span className="sr-only">{state.actor.id}</span>

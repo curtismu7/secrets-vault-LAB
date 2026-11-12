@@ -6,7 +6,7 @@ export default class ErrorBoundary extends Component {
   constructor(props) { super(props); this.state = { failed: false }; }
   static getDerivedStateFromError() { return { failed: true }; }
   render() {
-    if (this.state.failed) return <p className="app-error" role="alert" data-testid="boundary">This tab could not be drawn. <button type="button" onClick={() => this.setState({ failed: false })}>Try again</button></p>;
+    if (this.state.failed) return <p className="app-error" role="alert" data-testid="boundary">This tab could not be drawn. <button type="button" className="primary" onClick={() => this.setState({ failed: false })}>Try again</button></p>;
     return this.props.children;
   }
 }
