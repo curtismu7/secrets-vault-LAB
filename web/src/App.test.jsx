@@ -42,7 +42,7 @@ const T = { timeout: 20000 };
 const mount = async () => { render(<App />); await screen.findByTestId("scenarios", {}, T); };
 const tab = (name) => userEvent.click(screen.getByRole("tab", { name }));
 const click = (id) => userEvent.click(screen.getByTestId(id));
-const live = async () => { await click("mode-real"); await waitFor(() => expect(screen.getByTestId("banner")).toHaveTextContent(/LIVE mode/)); await screen.findByTestId("create-entry", {}, T); await waitFor(() => expect(screen.getByTestId("ce-submit")).toBeEnabled(), T); };
+const live = async () => { await pick("mode-select", "real"); await waitFor(() => expect(screen.getByTestId("banner")).toHaveTextContent(/LIVE mode/)); await screen.findByTestId("create-entry", {}, T); await waitFor(() => expect(screen.getByTestId("ce-submit")).toBeEnabled(), T); };
 const pick = (id, value) => userEvent.selectOptions(screen.getByTestId(id), value);
 const actAs = async (who) => { await pick("actor", who); await waitFor(() => expect(screen.getByTestId("actor")).toHaveValue(who)); await waitFor(() => expect(screen.getByTestId("banner")).toBeInTheDocument()); await settled(); };
 const settled = async () => { await waitFor(() => expect(pending).toBeLessThanOrEqual(0), { timeout: 20000 }); await new Promise((r) => setTimeout(r, 60)); await waitFor(() => expect(pending).toBeLessThanOrEqual(0), { timeout: 20000 }); };
@@ -60,7 +60,7 @@ describe("shell", () => {
     await userEvent.keyboard("p");
     expect(screen.getByTestId("presenter-say")).toBeInTheDocument();
     expect(screen.getByTestId("banner")).toHaveTextContent(/SIMULATED/); expect(screen.getByTestId("banner")).toHaveTextContent(/UNVERIFIED on our tenant/);
-    expect(screen.getByTestId("presenter")).toHaveTextContent("Exit presenter");
+    expect(screen.getByTestId("presenter")).toHaveTextContent("Exit present (Esc)");
     for (const t of TABS.filter((x) => x.id !== "talk")) { await tab(t.label); expect(screen.getByTestId("presenter-say")).toBeInTheDocument(); expect(screen.getByTestId("banner")).toHaveTextContent(/UNVERIFIED/); }
     await userEvent.keyboard("{Escape}");
     expect(screen.queryByTestId("presenter-say")).toBeNull();
@@ -68,16 +68,16 @@ describe("shell", () => {
   });
 
   it("the banner and the mode chip follow the toggle, in both directions, on every tab", async () => {
-    await mount(); await click("mode-real");
+    await mount(); await pick("mode-select", "real");
     await waitFor(() => expect(screen.getByTestId("banner")).toHaveTextContent(/LIVE mode/));
     expect(screen.getByTestId("mode")).toHaveTextContent("Mode: live");
     for (const t of TABS) { await tab(t.label); expect(screen.getByTestId("banner")).toHaveTextContent(/LIVE mode/); expect(screen.getByTestId("banner")).toHaveAttribute("data-state", "live"); }
-    await click("mode-mock");
+    await pick("mode-select", "mock");
     await waitFor(() => expect(screen.getByTestId("banner")).toHaveTextContent(/MOCK mode/));
   });
 
   it("the choice of mode is remembered, and a blocked storage never breaks the page", async () => {
-    await mount(); await click("mode-real");
+    await mount(); await pick("mode-select", "real");
     await waitFor(() => expect(window.localStorage.getItem("svl.mode")).toBe("live"));
     cleanup(); render(<App />);
     await waitFor(() => expect(screen.getByTestId("banner")).toHaveTextContent(/LIVE mode/), T);
@@ -362,7 +362,7 @@ describe("the other tabs", () => {
 
   it("the vertical switch reloads the cast: names change in the story and in the roster", async () => {
     await mount(); await live();
-    await userEvent.selectOptions(screen.getByTestId("vertical"), "health");
+    await userEvent.selectOptions(screen.getByTestId("vertical-select"), "health");
     await waitFor(() => expect(screen.getByTestId("actor")).toHaveValue(VERTICALS.health.castUser), T);
     await tab("Talk track"); await waitFor(() => expect(wholePageText()).toContain("Contoso Health"), T);
   });
@@ -381,7 +381,7 @@ describe("stale answers and honest successes", () => {
   it("a write answer for a mode the visitor has already left is not shown (stale write guard)", async () => {
     await mount(); await live();
     delay = (url, init) => (/\/api\/vault\/entries$/.test(url) && init.method === "POST" ? 800 : 0);
-    await click("ce-submit"); await click("mode-mock");
+    await click("ce-submit"); await pick("mode-select", "mock");
     await waitFor(() => expect(screen.getByTestId("banner")).toHaveTextContent(/MOCK mode/));
     await settled();
     expect(screen.queryByTestId("last-action")).toBeNull(); expect(screen.getByTestId("scenario-steps")).toBeInTheDocument();
@@ -445,8 +445,8 @@ describe("S6: switching vertical, person, provider and mode never sends a stale 
       await mount(); if (mode === "live") await live();
       for (const name of TAB_NAMES) {
         await tab(name);
-        for (const v of ["health", "retail", "finance"]) { await pick("vertical", v); await waitFor(() => expect(screen.getByTestId("vertical")).toHaveValue(v)); await settled(); no401(); }
-        await pick("vertical", "health"); await pick("vertical", "retail"); await pick("vertical", "finance"); // rapid: three switches without waiting
+        for (const v of ["health", "retail", "finance"]) { await pick("vertical-select", v); await waitFor(() => expect(screen.getByTestId("vertical-select")).toHaveValue(v)); await settled(); no401(); }
+        await pick("vertical-select", "health"); await pick("vertical-select", "retail"); await pick("vertical-select", "finance"); // rapid: three switches without waiting
         await settled(); no401();
         await waitFor(() => expect(screen.getByTestId("banner")).toHaveTextContent(mode === "live" ? /LIVE mode/ : /MOCK mode/), T);
       }
@@ -459,7 +459,7 @@ describe("S6: switching vertical, person, provider and mode never sends a stale 
     await mount(); await live();
     for (const name of TAB_NAMES) { await tab(name); for (const who of [C.castAdmin, C.castAuditor, C.castSupport, C.castUser2, C.castUser]) { await pick("actor", who); await waitFor(() => expect(screen.getByTestId("actor")).toHaveValue(who)); await settled(); no401(); } }
     await tab("Secret Stores"); for (const id of ["gcp", "delinea", "cyberark", "azure", "aws"]) { await waitFor(() => expect(screen.getByTestId(`prov-${id}`)).toBeInTheDocument(), T); await click(`prov-${id}`); no401(); }
-    for (let i = 0; i < 3; i++) { await click("mode-mock"); await click("mode-real"); await click("mode-mock"); await click("mode-real"); }
+    for (let i = 0; i < 3; i++) { await pick("mode-select", "mock"); await pick("mode-select", "real"); await pick("mode-select", "mock"); await pick("mode-select", "real"); }
     await settled(); await waitFor(() => expect(screen.getByTestId("banner")).toHaveTextContent(/LIVE mode/), T); no401();
     expect(statuses.filter((x) => x.status >= 400)).toEqual([]);
   });
@@ -467,7 +467,7 @@ describe("S6: switching vertical, person, provider and mode never sends a stale 
   it("live: a vertical switch while a write is in flight shows neither the old answer nor an error, and the write itself was a valid one", async () => {
     await mount(); await live();
     delay = (url, init) => (/\/api\/vault\/entries$/.test(url) && init.method === "POST" ? 600 : 0);
-    await click("ce-submit"); await pick("vertical", "health");
+    await click("ce-submit"); await pick("vertical-select", "health");
     await settled(); await waitFor(() => expect(screen.getByTestId("actor")).toHaveValue(VERTICALS.health.castUser), T); await settled(); no401();
     expect(statuses.filter((x) => /vault\/entries$/.test(x.url) && x.status === 200).length).toBe(1);
     await waitFor(() => expect(screen.getByTestId("vault-count")).toHaveTextContent("0 of 500"), T);
@@ -505,7 +505,7 @@ describe("double clicks, the on-demand proof and the administrator-only helpers"
     await tab("Governance"); await screen.findByTestId("policy-table", {}, T);
     await click("reset"); await screen.findByTestId("lab-clock", {}, T);
     for (let i = 0; i < 110; i++) await realFetch(`${base}/api/vault/entries`, { method: "POST", headers: { "content-type": "application/json", origin: base, "x-lab-actor": C.castUser, "x-workspace": workspaceId() }, body: JSON.stringify({ mode: "live", vertical: "finance", entry: { name: `e${i}`, targetId: C.castT1, shape: "bearer", generate: true } }) });
-    await click("mode-mock"); await click("mode-real");
+    await pick("mode-select", "mock"); await pick("mode-select", "real");
     await waitFor(() => expect(screen.getByTestId("proof-skipped")).toHaveTextContent(/Run the proof now/), T);
     expect(screen.queryByTestId("proof-found")).toBeNull();
     await click("proof-run");

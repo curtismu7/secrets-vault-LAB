@@ -84,7 +84,10 @@ export function createApp({ health = createHealth(), configFile = CONFIG, worksp
     if (typeof name !== 'string' || !DIAGRAM_NAMES.includes(name)) return res.status(404).json({ error: 'unknown_diagram' });
     return res.json(buildDiagram(castFor(req), name));
   });
-  on('get', '/info', (_req, res) => { noStore(res); const src = currentSource(); res.json({ mode: src === 'real' ? 'live' : src, modes: ['mock', 'live'], ...rule19View(), simulated: true, release: '2026-11-02', unverified: true }); });
+  on('get', '/info', (_req, res) => {
+    noStore(res); const src = currentSource();
+    res.json({ mode: src === 'real' ? 'live' : src, modes: ['mock', 'live'], ...rule19View(), simulated: true, release: '2026-11-02', unverified: true, version: (() => { try { return JSON.parse(fs.readFileSync(new URL('../../package.json', import.meta.url), 'utf8')).version || null; } catch { return null; } })() });
+  });
 
   // Rule 19: the Mock/Real toggle's runtime server-side mode. source "mock" is the recorded tables; "real" is the
   // lab's Live engine (loopback-only, nothing leaves the machine), so realAvailable is always true.

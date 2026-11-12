@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import ShelfLink from "./components/ShelfLink";
+import TopMenu, { applyFontSize } from "./top-menu/TopMenu.jsx";
 import VaultTab from "./components/VaultTab";
 import InjectionTab from "./components/InjectionTab";
 import StoresTab from "./components/StoresTab";
@@ -28,10 +29,14 @@ export const BANNER_UNKNOWN = `SIMULATED, MOCK or LIVE mode (loopback only, no o
 const PRESENTER_TALK = { vault: ["say-first", "own-vault", "no-override", "encrypted", "safe-editing", "staged-delete", "bounded"], injection: ["request-time", "slide-36"], stores: ["stores"], governance: ["governed", "no-copy", "resync"], diagram: ["why-user-vault", "why-secret-store"] };
 const MODE_KEY = "svl.mode";
 const THEME_KEY = "svl.theme";
-const THEMES = [["auto", "Auto"], ["light", "Light"], ["dark", "Dark"]];
+const THEMES = ["auto", "light", "dark"];
 function initialTheme() {
-  try { const t = localStorage.getItem(THEME_KEY); if (t === "light" || t === "dark") return t; } catch { /* storage blocked */ }
+  try { const t = localStorage.getItem(THEME_KEY); if (THEMES.includes(t)) return t; } catch { /* storage blocked */ }
   return "auto";
+}
+const FONT_KEY = "svl.font";
+function initialFontStep() {
+  try { const f = localStorage.getItem(FONT_KEY); return ["S", "M", "L"].includes(f) ? f : "M"; } catch { return "M"; }
 }
 const LIVE_TABS = ["vault", "injection", "stores", "governance"];
 
@@ -51,9 +56,17 @@ export default function App() {
   const [resetSignal, setResetSignal] = useState(0);
   const [resetMsg, setResetMsg] = useState("");
   const [theme, setTheme] = useState(initialTheme);
+  const [fontStep, setFontStep] = useState(initialFontStep);
+  const [infoVersion, setInfoVersion] = useState(null);
   const tabsRef = useRef(null);
 
+  useEffect(() => { getJson("/api/info").then((i) => setInfoVersion(i.version || null)).catch(() => setInfoVersion(null)); }, []);
+
   useEffect(() => { if (theme === "auto") delete document.documentElement.dataset.theme; else document.documentElement.dataset.theme = theme; }, [theme]);
+  useEffect(() => {
+    applyFontSize(fontStep);
+    try { localStorage.setItem(FONT_KEY, fontStep); } catch { /* not remembered */ }
+  }, [fontStep]);
   // Nothing is loaded in Live until the person belongs to the roster of the vertical being shown: a stale person from the previous vertical would be a
   // spurious 401 (and a flash of an error). The story of the new vertical sets the person, and only then does the first request go out.
   const storyReady = !!story && story.vertical === vertical;
@@ -129,49 +142,45 @@ export default function App() {
   const roster = story ? rosterOf(story.cast) : [];
   return (
     <div className={`app${presenter ? " app--presenter" : ""}`}>
-      <header className="shell-bar">
-        <span className="shell-brand">
-          <span className="shell-logo" aria-hidden="true">P</span>
-          <h1>Secrets Vault LAB</h1>
-        </span>
-        <span className="shell-right">
-          {!presenter && story && <span className="shell-intro">{story.intro}</span>}
-          <ShelfLink />
-          <div className="seg" role="group" aria-label="Mode">
-            <button type="button" aria-pressed={mode === "mock"} onClick={() => switchSource("mock")} data-testid="mode-mock">Mock</button>
-            <button type="button" aria-pressed={mode === "real" || mode === "live"} onClick={() => switchSource("real")} data-testid="mode-real">Real</button>
+      <header>
+        <p className="banner" role="status" data-state={mode === "live" ? "live" : "mock"} data-testid="banner">{banner}</p>
+        <div className="head">
+          <div>
+            <h1 className="head__title">Secrets Vault LAB</h1>
+            {!presenter && story && <p className="head__intro">{story.intro}</p>}
           </div>
-          <span className="chip" data-testid="mode">Mode: {mode || "..."}{mode === "live" ? " (local engine, loopback)" : mode === "mock" ? " (tables)" : ""}</span>
-          {!presenter && story && (
-            <>
+          <div className="head__tools">
+            <TopMenu
+              mode={{ value: mode === "live" || mode === "real" ? "real" : "mock", onChange: switchSource, realAvailable: true }}
+              vertical={{ value: vertical, onChange: setVertical, options: story ? story.verticals : ["finance"] }}
+              theme={{ value: theme, onChange: pickTheme }}
+              fontSize={{ value: fontStep, onChange: setFontStep }}
+              present={{ active: presenter, onToggle: () => setPresenter((v) => !v), label: "Presenter (P)" }}
+              help={{ href: "https://github.com/curtismu7/secrets-vault-LAB#readme" }}
+              version={infoVersion}
+              onReset={reset}
+            >
+              <ShelfLink />
+            </TopMenu>
+            <span className="chip" data-testid="mode">Mode: {mode || "..."}{mode === "live" ? " (local engine, loopback)" : mode === "mock" ? " (tables)" : ""}</span>
+            {!presenter && story && (
               <label className="inline">Acting as{" "}
                 <select value={mode === "live" ? (actorOk ? actor : "") : lab.scenario?.actor || ""} disabled={mode !== "live" || !actorOk} onChange={(e) => setActorState(e.target.value)} data-testid="actor">
                   {(mode === "live" ? roster : roster.filter(([id]) => id === lab.scenario?.actor)).map(([id, role]) => <option key={id} value={id}>{id} ({role})</option>)}
                 </select>
               </label>
-              <label className="inline">Vertical{" "}
-                <select value={vertical} onChange={(e) => setVertical(e.target.value)} data-testid="vertical">{story.verticals.map((v) => <option key={v} value={v}>{v}</option>)}</select>
-              </label>
-            </>
-          )}
-          <label className="shell-theme">Theme
-            <select value={theme} onChange={(e) => pickTheme(e.target.value)}>
-              {THEMES.map(([id, label]) => <option key={id} value={id}>{label}</option>)}
-            </select>
-          </label>
-          <button type="button" onClick={reset} data-testid="reset">Reset</button>
-          <button type="button" aria-pressed={presenter} onClick={() => setPresenter((v) => !v)} data-testid="presenter">{presenter ? "Exit presenter (Esc)" : "Presenter (P)"}</button>
-        </span>
-        <div role="tablist" aria-label="Lab sections" className="tabs shell-nav" ref={tabsRef}>
+            )}
+          </div>
+        </div>
+      </header>
+      <main>
+        <p className="sr-only" role="status" aria-live="polite">{resetMsg}</p>
+        <div role="tablist" aria-label="Lab sections" className="tabs" ref={tabsRef}>
           {TABS.map((t, i) => (
             <button key={t.id} id={`tab-${t.id}`} role="tab" type="button" aria-selected={tab === t.id} aria-controls={`panel-${t.id}`} tabIndex={tab === t.id ? 0 : -1}
               onClick={() => select(t.id)} onKeyDown={(e) => onKeyTab(e, i)}>{t.label}</button>
           ))}
         </div>
-      </header>
-      <main>
-        <p className="banner" role="status" data-state={mode === "live" ? "live" : "mock"} data-testid="banner">{banner}</p>
-        <p className="sr-only" role="status" aria-live="polite">{resetMsg}</p>
         <div id={`panel-${tab}`} role="tabpanel" aria-labelledby={`tab-${tab}`}>
           {error || lab.error ? <p className="app-error" role="alert">Could not load the lab ({error || lab.error}). Is the server running?</p> : !ready ? <p className="muted">Loading...</p> : (
             <ErrorBoundary key={`${vertical}|${mode}|${actorOk ? actor : "-"}|${tab}`}>
