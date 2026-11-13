@@ -1,6 +1,7 @@
-// Rule 14: W3C Trace Context on every (mock) hop. One trace id per evaluation, a new span id per hop. A valid incoming
-// `traceparent` header continues its trace; anything else starts a new one. Nothing is sent anywhere: these are the raw
-// request/response panes the UI shows. Values are random, mock, and carry no meaning outside this app.
+// W3C Trace Context helpers (Rule 14 family standard): one trace id per evaluation, a new span id per hop. A valid
+// incoming `traceparent` header continues its trace; anything else starts a new one. Nothing is sent anywhere —
+// values are random, mock, and carry no meaning outside the app. Family shared service (owner, 2026-11-13):
+// vendor it, never edit a lab's copy. (Token-redaction tracing stays lab-specific; only the traceparent half is shared.)
 import { randomBytes } from 'node:crypto';
 
 const TP = /^00-([0-9a-f]{32})-([0-9a-f]{16})-([0-9a-f]{2})$/;
