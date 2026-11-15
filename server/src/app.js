@@ -21,6 +21,18 @@ import { liveState, mockState, onRoster, runAction } from './service.js';
 import { maskDeep } from './mask.js';
 import { shelfInfo } from './shelfLink.js';
 import { isPageAddress, charsetProblem, buildMethodTable, methodNotAllowed } from './shared/hygiene.js';
+import { readFileSettings, doorConfig, createRealDoor } from './gatewayReal.js';
+
+// Real mode = the shared gateway hop: an agent key from the shared settings file calling a live Privilege door.
+// The environment wins over the file: SVL_* variables overlay the parsed file text.
+export function realDoorFrom(env = process.env) {
+  const p = env.STANDALONE_ENV || `${env.HOME || ''}/Development/.env`;
+  let text = '';
+  try { text = fs.readFileSync(p, 'utf8'); } catch { /* the environment may still carry the keys */ }
+  for (const [k, v] of Object.entries(env)) if (k.startsWith('SVL_GW_') && v) text += `\n${k}=${v}`;
+  const cfg = doorConfig(text, 'SVL');
+  return cfg.ok ? createRealDoor({ config: cfg, clientInfo: { name: 'secrets-vault-lab', version: '0.1.0' } }) : null;
+}
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const WEB_DIST = process.env.WEB_DIST || path.resolve(HERE, '../../web/dist');
@@ -77,6 +89,21 @@ export function createApp({ health = createHealth(), configFile = CONFIG, worksp
   // Query strings are strict too: a parameter that names an owner or user is refused, never ignored and never echoed.
   const queryOk = (req, res) => { if (Object.keys(req.query).every((k) => QUERY_OK.includes(k))) return true; res.status(400).json({ error: 'unknown_field', detail: 'the query carries a parameter the lab does not take' }); return false; };
 
+
+  // One real gateway check: tools/list through the door with the agent key, then the gateway's refusal
+  // for a tool nothing grants. Independent of the lab's local Live engine.
+  on('post', '/gateway-check', async (req, res) => {
+    const door = realDoorFrom();
+    if (!door) return res.status(409).json({ error: 'real_not_available', detail: 'Set SVL_GW_URL, SVL_GW_APPS and at least one SVL_GW_KEY_<NAME> in the shared settings file.' });
+    if (req.body && Object.keys(req.body).some((k) => !['app', 'caller'].includes(k))) return res.status(400).json({ error: 'bad_request', detail: 'the only accepted body fields are { "app", "caller" }' });
+    const app = String(req.body?.app || door.apps[0]);
+    if (!door.apps.includes(app)) return res.status(400).json({ error: 'bad_app', detail: `app must be one of ${door.apps.join(', ')}` });
+    const caller = req.body?.caller && door.callers.some((c) => c.id === req.body.caller) ? req.body.caller : door.callers[0].id;
+    const listing = await door.list(app, caller);
+    const out = { app, caller, gateway: door.origin, listing };
+    if (listing.ok) out.refusal = await door.call(app, caller, 'secrets_vault_refusal_probe_tool', {});
+    res.json(out);
+  });
   on('get', '/story', (req, res) => { noStore(res); if (!queryOk(req, res) || !verticalOk(req, res)) return; res.json(buildStory(castFor(req), verticalOf(req))); });
   on('get', '/diagram', (req, res) => {
     noStore(res); if (!queryOk(req, res) || !verticalOk(req, res)) return;
