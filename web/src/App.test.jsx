@@ -1,7 +1,7 @@
 // These tests drive the real UI against the real Express app (started on a loopback port inside the test), so a green run means the pieces
 // actually work together: the real story data, the real engine, the real Mock table.
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createApp, startHttpServer } from "../../server/src/app.js";
 import { createHealth } from "../../server/src/health.js";
@@ -9,6 +9,7 @@ import { VERTICALS } from "../../server/src/cast.js";
 import App, { BANNER_UNKNOWN, TABS } from "./App";
 import { labelOffsets } from "./components/PatternDiagram";
 import { secretFrom } from "./components/VaultTab";
+import { setJsonView } from "./components/JsonPane.jsx";
 import { visible } from "./safeText";
 import { forgetWorkspace, workspaceId } from "./workspace";
 import ErrorBoundary from "./components/ErrorBoundary";
@@ -36,7 +37,7 @@ beforeAll(async () => {
   };
 });
 afterAll(async () => { globalThis.fetch = realFetch; await new Promise((r) => server.close(r)); });
-beforeEach(() => { cleanup(); forgetWorkspace(); seen = []; statuses = []; delay = () => 0; override = () => null; pending = 0; try { window.localStorage.clear(); window.sessionStorage.clear(); } catch { /* ignore */ } window.location.hash = ""; realFetch(`${base}/api/mode`, { method: "POST", headers: { "content-type": "application/json", origin: base }, body: JSON.stringify({ source: "mock" }) }).catch(() => {}); });
+beforeEach(() => { cleanup(); setJsonView("form"); forgetWorkspace(); seen = []; statuses = []; delay = () => 0; override = () => null; pending = 0; try { window.localStorage.clear(); window.sessionStorage.clear(); } catch { /* ignore */ } window.location.hash = ""; realFetch(`${base}/api/mode`, { method: "POST", headers: { "content-type": "application/json", origin: base }, body: JSON.stringify({ source: "mock" }) }).catch(() => {}); });
 
 const T = { timeout: 20000 };
 const mount = async () => { render(<App />); await screen.findByTestId("scenarios", {}, T); };
@@ -186,6 +187,25 @@ describe("User Vault (Live)", () => {
     await waitFor(() => expect(screen.getByTestId("edit-message")).toHaveTextContent(/replaced \(now version 2/), T);
     expect(wholePageText()).not.toContain(typed);
     expect(screen.getByTestId("secret-vcr-0001")).toHaveTextContent(/v2/);
+  });
+
+  it("the hop panes are JsonPane panes (Form | JSON), and a typed secret is in neither view", async () => {
+    await mount(); await live();
+    await tab("User Vault");
+    await userEvent.click(screen.getByTestId("ce-generate"));
+    await pick("ce-target", C.castT3);
+    const typed = "typed-basic-password-RRRR8888";
+    fireEvent.change(screen.getByTestId("ce-username"), { target: { value: "maya" } }); fireEvent.change(screen.getByTestId("ce-password"), { target: { value: typed } });
+    await click("ce-submit"); await waitFor(() => expect(screen.getByTestId("create-message")).toHaveTextContent(/Stored vcr-0001/), T);
+    const panel = screen.getByTestId("last-action");
+    const toggles = [...panel.querySelectorAll(".jsonbox__toggle")];
+    expect(toggles.length).toBeGreaterThan(0);
+    for (const g of toggles) expect(g.textContent).toBe("FormJSON");
+    for (const view of ["form", "raw"]) {
+      act(() => setJsonView(view));
+      await waitFor(() => expect(panel.querySelector(`.jsonbox[data-view="${view}"]`)).not.toBeNull());
+      expect(panel.textContent).toContain("write-only"); expect(panel.textContent).not.toContain(typed);
+    }
   });
 
   it("a credential-shaped name is refused with its reason, and nothing is stored", async () => {

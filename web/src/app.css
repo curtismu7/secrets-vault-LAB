@@ -38,7 +38,7 @@ textarea { width: 100%; display: block; font-family: var(--font-mono); font-size
 .tag[data-state="ok"] { border-color: var(--status-ok); color: var(--status-ok); }
 .tag[data-state="warn"] { border-color: var(--status-warn); color: var(--status-warn); }
 .tag[data-state="bad"] { border-color: var(--danger-text); color: var(--danger-text); }
-.json { margin: 4px 0; padding: 10px; background: var(--surface-2); color: var(--text); border: 1px solid var(--border); border-radius: 8px; font-size: 13px; overflow-x: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
+.json { margin: 4px 0; padding: 10px; background: var(--surface-2); color: var(--text); border: 1px solid var(--border); border-radius: 8px; font-size: 13px; white-space: pre-wrap; overflow-wrap: anywhere; }
 .scroll { overflow-x: auto; }
 .tbl { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 13px; }
 .tbl caption { text-align: left; font-weight: 700; padding-bottom: 4px; color: var(--text); }
