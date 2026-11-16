@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import ShelfLink from "./components/ShelfLink";
+import VerifyMark from "./components/VerifyMark.jsx";
 import TopMenu, { applyFontSize } from "./top-menu/TopMenu.jsx";
 import VaultTab from "./components/VaultTab";
 import InjectionTab from "./components/InjectionTab";
@@ -161,6 +162,7 @@ export default function App() {
               onReset={reset}
             >
               <ShelfLink />
+              <VerifyMark id="secrets-vault-lab" />
             </TopMenu>
             <span className="chip" data-testid="mode">Mode: {mode || "..."}{mode === "live" ? " (local engine, loopback)" : mode === "mock" ? " (tables)" : ""}</span>
             {!presenter && story && (
