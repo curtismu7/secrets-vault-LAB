@@ -41,7 +41,7 @@ beforeEach(() => { cleanup(); setJsonView("form"); forgetWorkspace(); seen = [];
 
 const T = { timeout: 20000 };
 const mount = async () => { render(<App />); await screen.findByTestId("scenarios", {}, T); };
-const tab = (name) => userEvent.click(screen.getByRole("tab", { name }));
+const tab = (name) => userEvent.click(within(document.querySelector("header.shell-bar nav.shell-nav")).getByRole("link", { name }));
 const click = (id) => userEvent.click(screen.getByTestId(id));
 const live = async () => { await pick("mode-select", "real"); await waitFor(() => expect(screen.getByTestId("banner")).toHaveTextContent(/LIVE mode/)); await screen.findByTestId("create-entry", {}, T); await waitFor(() => expect(screen.getByTestId("ce-submit")).toBeEnabled(), T); };
 const pick = (id, value) => userEvent.selectOptions(screen.getByTestId(id), value);
@@ -55,7 +55,7 @@ describe("shell", () => {
   it("says it is simulated and UNVERIFIED on every tab, in presenter mode too, and shows the mode", async () => {
     await mount();
     expect(screen.getByTestId("banner")).toHaveTextContent(/MOCK mode/);
-    expect(screen.getByTestId("mode")).toHaveTextContent("Mode: mock");
+    expect(screen.getByTestId("mode")).toHaveTextContent("Mock"); expect(screen.getByTestId("mode")).toHaveAttribute("title", "Mode: mock (tables)");
     for (const t of TABS) { await tab(t.label); expect(screen.getByTestId("banner")).toHaveTextContent(/UNVERIFIED on our tenant/); }
     await tab("User Vault");
     await userEvent.keyboard("p");
@@ -71,7 +71,7 @@ describe("shell", () => {
   it("the banner and the mode chip follow the toggle, in both directions, on every tab", async () => {
     await mount(); await pick("mode-select", "real");
     await waitFor(() => expect(screen.getByTestId("banner")).toHaveTextContent(/LIVE mode/));
-    expect(screen.getByTestId("mode")).toHaveTextContent("Mode: live");
+    expect(screen.getByTestId("mode")).toHaveTextContent("Live"); expect(screen.getByTestId("mode")).toHaveAttribute("title", "Mode: live (local engine, loopback)");
     for (const t of TABS) { await tab(t.label); expect(screen.getByTestId("banner")).toHaveTextContent(/LIVE mode/); expect(screen.getByTestId("banner")).toHaveAttribute("data-state", "live"); }
     await pick("mode-select", "mock");
     await waitFor(() => expect(screen.getByTestId("banner")).toHaveTextContent(/MOCK mode/));
@@ -84,14 +84,24 @@ describe("shell", () => {
     await waitFor(() => expect(screen.getByTestId("banner")).toHaveTextContent(/LIVE mode/), T);
   });
 
-  it("arrow keys move between tabs, and the URL hash follows", async () => {
+  it("the shell bar comes first, then main with the banner first; the nav pill marks the current section and the URL hash follows", async () => {
     await mount();
-    screen.getByRole("tab", { name: "User Vault" }).focus();
-    await userEvent.keyboard("{ArrowRight}");
-    expect(screen.getByRole("tab", { name: "Request-time injection" })).toHaveAttribute("aria-selected", "true");
+    const bar = document.querySelector("header.shell-bar");
+    expect(bar).not.toBeNull(); expect(document.querySelectorAll("header")).toHaveLength(1);
+    expect(bar.nextElementSibling).toBe(document.querySelector("main"));
+    expect(document.querySelector("main").firstElementChild).toBe(screen.getByTestId("banner"));
+    expect(within(bar).getByRole("heading", { level: 1, name: "Secrets Vault LAB" })).toBeInTheDocument();
+    expect(within(bar).getByTestId("mode-select")).toBeInTheDocument(); // the Mock / Real toggle sits in the bar's TopMenu
+    const nav = within(bar).getByRole("navigation", { name: "Lab sections" });
+    expect(within(nav).getByRole("link", { name: "User Vault" })).toHaveAttribute("aria-current", "page");
+    await tab("Request-time injection");
+    expect(within(nav).getByRole("link", { name: "Request-time injection" })).toHaveAttribute("aria-current", "page");
+    expect(within(nav).getByRole("link", { name: "User Vault" })).not.toHaveAttribute("aria-current");
     expect(window.location.hash).toBe("#injection");
-    await userEvent.keyboard("{ArrowLeft}{ArrowLeft}");
-    expect(screen.getByRole("tab", { name: "Talk track" })).toHaveAttribute("aria-selected", "true");
+    await tab("Talk track");
+    expect(within(nav).getByRole("link", { name: "Talk track" })).toHaveAttribute("aria-current", "page");
+    expect(window.location.hash).toBe("#talk");
+    expect(within(nav).getAllByRole("link")).toHaveLength(TABS.length);
   });
 
   it("talks only to its own origin, and names the acting person on every Live call", async () => {
