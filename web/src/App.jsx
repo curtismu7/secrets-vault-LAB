@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import ShelfLink from "./components/ShelfLink";
 import TopMenu, { applyFontSize } from "./top-menu/TopMenu.jsx";
+import TalkTrackDialog from "./talk-track/TalkTrackDialog.jsx";
 import VaultTab from "./components/VaultTab";
 import InjectionTab from "./components/InjectionTab";
 import StoresTab from "./components/StoresTab";
@@ -54,6 +55,7 @@ export default function App() {
   const [error, setError] = useState(null);
   const [tab, setTab] = useState(tabFromHash());
   const [presenter, setPresenter] = useState(false);
+  const [talkOpen, setTalkOpen] = useState(false);
   const [resetSignal, setResetSignal] = useState(0);
   const [resetMsg, setResetMsg] = useState("");
   const [theme, setTheme] = useState(initialTheme);
@@ -157,6 +159,7 @@ export default function App() {
               theme={{ value: theme, onChange: pickTheme }}
               fontSize={{ value: fontStep, onChange: setFontStep }}
               present={{ active: presenter, onToggle: () => setPresenter((v) => !v), label: "Presenter (P)" }}
+          talkTrack={{ active: talkOpen, onToggle: () => setTalkOpen((v) => !v) }}
               help={{ href: "https://github.com/curtismu7/secrets-vault-LAB#readme" }}
               version={infoVersion}
               onReset={reset}
@@ -205,6 +208,8 @@ export default function App() {
           )}
         </div>
       </main>
+
+      <TalkTrackDialog isOpen={talkOpen} onClose={() => setTalkOpen(false)} talk={story?.talkTrack ?? []} />
     </div>
   );
 }
