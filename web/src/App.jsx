@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import ShelfLink from "./components/ShelfLink";
+import VerifyMark from "./components/VerifyMark.jsx";
 import TopMenu, { applyFontSize } from "./top-menu/TopMenu.jsx";
 import TalkTrackDialog from "./talk-track/TalkTrackDialog.jsx";
 import VaultTab from "./components/VaultTab";
@@ -145,14 +146,12 @@ export default function App() {
   const roster = story ? rosterOf(story.cast) : [];
   return (
     <div className={`app${presenter ? " app--presenter" : ""}`}>
-      <header>
-        <p className="banner" role="status" data-state={mode === "live" ? "live" : "mock"} data-testid="banner">{banner}</p>
-        <div className="head">
-          <div>
-            <h1 className="head__title">Secrets Vault LAB</h1>
-            {!presenter && story && <p className="head__intro">{story.intro}</p>}
-          </div>
-          <div className="head__tools">
+      <header className="shell-bar">
+        <div className="shell-brand">
+          <h1>Secrets Vault LAB</h1>
+          {!presenter && story && <p className="head__intro">{story.intro}</p>}
+        </div>
+        <div className="shell-right">
             <TopMenu
               mode={{ value: mode === "live" || mode === "real" ? "real" : "mock", onChange: switchSource, realAvailable: true }}
               vertical={{ value: vertical, onChange: setVertical, options: story ? story.verticals : ["finance"] }}
@@ -165,6 +164,7 @@ export default function App() {
               onReset={reset}
             >
               <ShelfLink />
+              <VerifyMark id="secrets-vault-lab" />
             </TopMenu>
             <span className="chip" data-testid="mode">Mode: {mode || "..."}{mode === "live" ? " (local engine, loopback)" : mode === "mock" ? " (tables)" : ""}</span>
             {!presenter && story && (
@@ -174,11 +174,10 @@ export default function App() {
                 </select>
               </label>
             )}
-          </div>
         </div>
       </header>
-      <main>
-
+      <main className="page">
+        <p className="banner" role="status" data-state={mode === "live" ? "live" : "mock"} data-testid="banner">{banner}</p>
         <PrivilegeCheck />
         <p className="sr-only" role="status" aria-live="polite">{resetMsg}</p>
         <div role="tablist" aria-label="Lab sections" className="tabs" ref={tabsRef}>
