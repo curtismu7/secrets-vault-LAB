@@ -13,8 +13,13 @@
 .pcard__head { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; margin-bottom: 0.5rem; }
 .pcard__title { margin: 0; font-size: 1rem; }
 .pcard__retry {
-  border: 1px solid var(--border, #d9d9de); border-radius: 7px; background: var(--ping-red, #d20e0f);
-  color: #fff; padding: 0.25rem 0.6rem; font-size: 0.8rem; cursor: pointer;
+  border: 1px solid var(--border); border-radius: 7px; background: var(--surface-2, transparent);
+  color: var(--text); padding: 0.25rem 0.6rem; font-size: 0.8rem; cursor: pointer;
+}
+.pcard__retry.primary {
+  border-color: var(--primary-edge, transparent);
+  background: var(--accent-gradient);
+  color: var(--on-accent);
 }
 .pcard__retry:disabled { opacity: 0.6; cursor: default; }
 .pcard__note { margin: 0.35rem 0; color: var(--muted, #555); }
