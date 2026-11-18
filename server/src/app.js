@@ -93,6 +93,7 @@ export function createApp({ health = createHealth(), configFile = CONFIG, worksp
   // One real gateway check: tools/list through the door with the agent key, then the gateway's refusal
   // for a tool nothing grants. Independent of the lab's local Live engine.
   on('post', '/gateway-check', async (req, res) => {
+    if (currentSource() !== 'real') return res.status(409).json({ error: 'mock_mode', detail: 'the gateway check runs in Real only' });
     const door = realDoorFrom();
     if (!door) return res.status(409).json({ error: 'real_not_available', detail: 'Set SVL_GW_URL, SVL_GW_APPS and at least one SVL_GW_KEY_<NAME> in the shared settings file.' });
     if (req.body && Object.keys(req.body).some((k) => !['app', 'caller'].includes(k))) return res.status(400).json({ error: 'bad_request', detail: 'the only accepted body fields are { "app", "caller" }' });
@@ -118,7 +119,8 @@ export function createApp({ health = createHealth(), configFile = CONFIG, worksp
 
   // Rule 19: the Mock/Real toggle's runtime server-side mode. source "mock" is the recorded tables; "real" is the
   // lab's Live engine (loopback-only, nothing leaves the machine), so realAvailable is always true.
-  const rule19View = () => ({ source: currentSource(), realAvailable: true, realReason: null });
+  const doorReady = () => Boolean(realDoorFrom(env));
+  const rule19View = () => ({ source: currentSource(), realAvailable: doorReady(), realReason: doorReady() ? null : 'Real needs the gateway settings (see the README): gateway URL, door names and an agent key in the shared settings file.' });
   on('get', '/mode', (_req, res) => { noStore(res); res.json(rule19View()); });  on('post', '/mode', (req, res) => {
     noStore(res);
     const b = isObj(req.body) ? req.body : {};

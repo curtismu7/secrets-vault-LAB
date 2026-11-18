@@ -27,15 +27,17 @@ test('health answers demo-health/1, GET only, with no detail; info says simulate
 
 test('rule 19: POST /api/mode {source} switches the server-side mode at runtime; /api/info follows; the body must be exactly {source}', async () => {
   await withServer(async (url) => {
-    // Before the switch: the info's source follows the configured default, and the live engine is reachable (realAvailable: true).
+    // The gateway card's availability follows the door configuration, honestly: with no SVL_GW_* settings the
+    // info says real is not configured (and says what to set), whatever the mode.
     const before = await (await get(url, '/api/info', null)).json();
-    assert.equal(before.realAvailable, true);
+    assert.equal(before.realAvailable, false);
+    assert.match(before.realReason, /gateway URL|SVL_GW/);
     // Switch to real (the lab's Live engine, loopback-only) and read again.
     const toReal = await post(url, '/api/mode', { source: 'real' }, null);
     assert.equal(toReal.status, 200);
     const afterReal = await (await get(url, '/api/info', null)).json();
-    assert.equal(afterReal.source, 'real'); assert.equal(afterReal.realAvailable, true);
-    assert.equal(afterReal.realReason, null);
+    assert.equal(afterReal.source, 'real'); assert.equal(afterReal.realAvailable, false);
+    assert.match(afterReal.realReason, /gateway URL|SVL_GW/);
     // Switch back to mock.
     const toMock = await post(url, '/api/mode', { source: 'mock' }, null);
     assert.equal(toMock.status, 200);

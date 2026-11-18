@@ -1,14 +1,15 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import ShelfLink from "./components/ShelfLink";
 import VerifyMark from "./components/VerifyMark.jsx";
 import TopMenu, { applyFontSize } from "./top-menu/TopMenu.jsx";
-import TalkTrackDialog from "./talk-track/TalkTrackDialog.jsx";
 import VaultTab from "./components/VaultTab";
 import InjectionTab from "./components/InjectionTab";
 import StoresTab from "./components/StoresTab";
 import GovernanceTab from "./components/GovernanceTab";
 import DiagramTab from "./components/DiagramTab";
 import TalkTrack from "./components/TalkTrack";
+import PrivilegeCheck from "./privilege-check/PrivilegeCheck.jsx";
+import TalkTrackDialog from "./talk-track/TalkTrackDialog.jsx";
 import LastAction from "./components/LastAction";
 import ClockBar from "./components/ClockBar";
 import ScenarioBar from "./components/ScenarioBar";
@@ -16,7 +17,6 @@ import ErrorBoundary from "./components/ErrorBoundary";
 import useLab from "./hooks/useLab";
 import { getJson, resetWorkspace, setMode } from "./api";
 import { setActor } from "./workspace";
-import PrivilegeCheck from "./privilege-check/PrivilegeCheck.jsx";
 
 export const TABS = [
   { id: "vault", label: "User Vault" },
@@ -49,6 +49,7 @@ const rosterOf = (c) => [[c.castUser, "user"], [c.castUser2, "user"], [c.castAdm
 
 export default function App() {
   const [vertical, setVertical] = useState("finance");
+  const [talkOpen, setTalkOpen] = useState(false);
   const [story, setStory] = useState(null);
   const [mode, setModeState] = useState(null);
   const [scenarioId, setScenarioId] = useState(null);
@@ -56,13 +57,11 @@ export default function App() {
   const [error, setError] = useState(null);
   const [tab, setTab] = useState(tabFromHash());
   const [presenter, setPresenter] = useState(false);
-  const [talkOpen, setTalkOpen] = useState(false);
   const [resetSignal, setResetSignal] = useState(0);
   const [resetMsg, setResetMsg] = useState("");
   const [theme, setTheme] = useState(initialTheme);
   const [fontStep, setFontStep] = useState(initialFontStep);
   const [infoVersion, setInfoVersion] = useState(null);
-  const tabsRef = useRef(null);
 
   useEffect(() => { getJson("/api/info").then((i) => setInfoVersion(i.version || null)).catch(() => setInfoVersion(null)); }, []);
 
@@ -107,14 +106,6 @@ export default function App() {
   };
   const select = (id) => { setTab(id); try { window.history.replaceState(null, "", `#${id}`); } catch { /* ignore */ } };
 
-  // Keep the active tab fully in view in the scrolling tab strip (375px).
-  useEffect(() => {
-    const strip = tabsRef.current; const el = document.getElementById(`tab-${tab}`);
-    if (!strip || !el) return;
-    const left = el.offsetLeft - strip.offsetLeft;
-    if (left < strip.scrollLeft || left + el.offsetWidth > strip.scrollLeft + strip.clientWidth) strip.scrollLeft = Math.max(0, left - 8);
-  }, [tab]);
-
   useEffect(() => {
     const on = (e) => {
       if (e.target && /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) return;
@@ -133,13 +124,6 @@ export default function App() {
     setResetMsg(ok ? "Reset: your workspace's vault, secret inventory, grants, audit trail and the lab clock are back to the start, and the diagram is back in place." : "Reset failed on the server; the view was reloaded.");
   }, [lab.reload]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const onKeyTab = (e, i) => {
-    if (e.key !== "ArrowRight" && e.key !== "ArrowLeft") return;
-    const next = TABS[(i + (e.key === "ArrowRight" ? 1 : TABS.length - 1)) % TABS.length];
-    select(next.id);
-    document.getElementById(`tab-${next.id}`)?.focus();
-  };
-
   const banner = story && mode ? story.banner[mode] : BANNER_UNKNOWN;
   const ready = story && mode && lab.state;
   const props = { story, mode, vertical, lab };
@@ -147,47 +131,49 @@ export default function App() {
   return (
     <div className={`app${presenter ? " app--presenter" : ""}`}>
       <header className="shell-bar">
-        <div className="shell-brand">
+        <span className="shell-brand">
+          <span className="shell-logo" aria-hidden="true">SV</span>
           <h1>Secrets Vault LAB</h1>
-          {!presenter && story && <p className="head__intro">{story.intro}</p>}
-        </div>
-        <div className="shell-right">
-            <TopMenu
-              mode={{ value: mode === "live" || mode === "real" ? "real" : "mock", onChange: switchSource, realAvailable: true }}
-              vertical={{ value: vertical, onChange: setVertical, options: story ? story.verticals : ["finance"] }}
-              theme={{ value: theme, onChange: pickTheme }}
-              fontSize={{ value: fontStep, onChange: setFontStep }}
-              present={{ active: presenter, onToggle: () => setPresenter((v) => !v), label: "Presenter (P)" }}
+          <span className={`shell-badge${mode === "live" ? " shell-badge--live" : ""}`} data-testid="mode" title={mode === "live" ? "Mode: live (local engine, loopback)" : mode === "mock" ? "Mode: mock (tables)" : "Mode: loading"}>{mode === "live" ? "Live" : mode === "mock" ? "Mock" : "..."}</span>
+        </span>
+        <nav className="shell-nav" aria-label="Lab sections">
+          {TABS.map((t) => (
+            <a key={t.id} href={`#${t.id}`} aria-current={tab === t.id ? "page" : undefined}
+              onClick={(e) => { e.preventDefault(); select(t.id); }}>{t.label}</a>
+          ))}
+        </nav>
+        <TopMenu
+          mode={{ value: mode === "live" || mode === "real" ? "real" : "mock", onChange: switchSource, realAvailable: true }}
+          vertical={{ value: vertical, onChange: setVertical, options: story ? story.verticals : ["finance"] }}
+          theme={{ value: theme, onChange: pickTheme }}
+          fontSize={{ value: fontStep, onChange: setFontStep }}
+          present={{ active: presenter, onToggle: () => setPresenter((v) => !v), label: "Presenter (P)" }}
           talkTrack={{ active: talkOpen, onToggle: () => setTalkOpen((v) => !v) }}
-              help={{ href: "https://github.com/curtismu7/secrets-vault-LAB#readme" }}
-              version={infoVersion}
-              onReset={reset}
-            >
-              <ShelfLink />
-              <VerifyMark id="secrets-vault-lab" />
-            </TopMenu>
-            <span className="chip" data-testid="mode">Mode: {mode || "..."}{mode === "live" ? " (local engine, loopback)" : mode === "mock" ? " (tables)" : ""}</span>
-            {!presenter && story && (
-              <label className="inline">Acting as{" "}
-                <select value={mode === "live" ? (actorOk ? actor : "") : lab.scenario?.actor || ""} disabled={mode !== "live" || !actorOk} onChange={(e) => setActorState(e.target.value)} data-testid="actor">
-                  {(mode === "live" ? roster : roster.filter(([id]) => id === lab.scenario?.actor)).map(([id, role]) => <option key={id} value={id}>{id} ({role})</option>)}
-                </select>
-              </label>
-            )}
-        </div>
+          help={{ href: "https://github.com/curtismu7/secrets-vault-LAB#readme" }}
+          version={infoVersion}
+          onReset={reset}
+        >
+          <ShelfLink />
+          <VerifyMark id="secrets-vault-lab" />
+        </TopMenu>
       </header>
       <main className="page">
         <p className="banner" role="status" data-state={mode === "live" ? "live" : "mock"} data-testid="banner">{banner}</p>
-        <PrivilegeCheck />
+        {mode === "live" && <PrivilegeCheck />}
+        {(error || lab.error) && <p className="app-error" role="alert">Could not load the lab ({error || lab.error}). Is the server running?</p>}
         <p className="sr-only" role="status" aria-live="polite">{resetMsg}</p>
-        <div role="tablist" aria-label="Lab sections" className="tabs" ref={tabsRef}>
-          {TABS.map((t, i) => (
-            <button key={t.id} id={`tab-${t.id}`} role="tab" type="button" aria-selected={tab === t.id} aria-controls={`panel-${t.id}`} tabIndex={tab === t.id ? 0 : -1}
-              onClick={() => select(t.id)} onKeyDown={(e) => onKeyTab(e, i)}>{t.label}</button>
-          ))}
-        </div>
-        <div id={`panel-${tab}`} role="tabpanel" aria-labelledby={`tab-${tab}`}>
-          {error || lab.error ? <p className="app-error" role="alert">Could not load the lab ({error || lab.error}). Is the server running?</p> : !ready ? <p className="muted">Loading...</p> : (
+        {!presenter && story && (
+          <div className="page-head">
+            <p className="page-head__intro">{story.intro}</p>
+            <label className="inline">Acting as{" "}
+              <select value={mode === "live" ? (actorOk ? actor : "") : lab.scenario?.actor || ""} disabled={mode !== "live" || !actorOk} onChange={(e) => setActorState(e.target.value)} data-testid="actor">
+                {(mode === "live" ? roster : roster.filter(([id]) => id === lab.scenario?.actor)).map(([id, role]) => <option key={id} value={id}>{id} ({role})</option>)}
+              </select>
+            </label>
+          </div>
+        )}
+        <div id={`panel-${tab}`}>
+          {error || lab.error ? null : !ready ? <p className="muted">Loading...</p> : (
             <ErrorBoundary key={`${vertical}|${mode}|${actorOk ? actor : "-"}|${tab}`}>
               {mode === "mock" && LIVE_TABS.includes(tab) && <ScenarioBar lab={lab} scenarioId={scenarioId} setScenarioId={setScenarioId} />}
               {mode === "live" && LIVE_TABS.includes(tab) && <ClockBar state={lab.state} lab={lab} />}
@@ -207,7 +193,6 @@ export default function App() {
           )}
         </div>
       </main>
-
       <TalkTrackDialog isOpen={talkOpen} onClose={() => setTalkOpen(false)} talk={story?.talkTrack ?? []} />
     </div>
   );
