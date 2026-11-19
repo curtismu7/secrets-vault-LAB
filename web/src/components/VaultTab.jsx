@@ -62,7 +62,7 @@ function CreateForm({ state, lab }) {
   };
   return (
     <section className="panel" data-testid="create-entry">
-      <h2 className="panel__title">Store a credential in your vault <SourceTag source="deck" /></h2>
+      <h2 className="panel__title"><span className="step-num" aria-hidden="true">2</span>Store a credential in your vault <SourceTag source="deck" /></h2>
       <div className="filters">
         <label>Name<input value={name} disabled={off} onChange={(e) => setName(e.target.value)} data-testid="ce-name" /></label>
         <label>Target system
@@ -96,7 +96,7 @@ function EditPanel({ entry, state, lab }) {
   };
   return (
     <section className="panel" data-testid="edit-entry">
-      <h2 className="panel__title">Edit {entry.id}: merge, never replace <SourceTag source="deck" /></h2>
+      <h2 className="panel__title"><span className="step-num" aria-hidden="true">2</span>Edit {entry.id}: merge, never replace <SourceTag source="deck" /></h2>
       <div className="filters">
         <label>Name<input value={name} disabled={off} onChange={(e) => setName(e.target.value)} data-testid="ed-name" /></label>
         <label>Notes<input value={notes} disabled={off} onChange={(e) => setNotes(e.target.value)} data-testid="ed-notes" /></label>
@@ -130,7 +130,7 @@ function Isolation({ state, lab, entryId }) {
   const off = lab.readOnly || !entryId || running;
   return (
     <section className="panel" data-testid="isolation">
-      <h2 className="panel__title">No administrator override <SourceTag source="deck" /></h2>
+      <h2 className="panel__title"><span className="step-num" aria-hidden="true">3</span>No administrator override <SourceTag source="deck" /></h2>
       <p className="muted">Each other person, in turn, asks for your entry by its id, then names you as the owner, then lists their vault. Every operation is forced to the caller's own vault, whatever the role. The browser logs the deliberate 404 and 400 answers as console messages.</p>
       <div className="seg"><button type="button" disabled={off} onClick={run} data-testid="isolation-run">Try every other role</button></div>
       {!entryId && <p className="muted">Store an entry first.</p>}
@@ -155,7 +155,7 @@ export default function VaultTab({ story, lab }) {
   return (
     <div className="stack">
       <section className="panel" data-testid="vault-intro">
-        <h2 className="panel__title">User Vault: {state.actor.id}'s own vault <ClaimTag /></h2>
+        <h2 className="panel__title"><span className="step-num" aria-hidden="true">1</span>User Vault: {state.actor.id}'s own vault <ClaimTag /></h2>
         <p className="lesson">{story.claims.find((c) => c.id === "self-service").claim}</p>
         <p className="muted">{lab.readOnly ? `Mock tables are recorded as ${state.actor.id}. Switch to Live to act as anyone on the roster.` : `Acting as ${state.actor.id} (${state.actor.role}). The lab has no sign-in: you choose who acts, so you can try the wrong person. The real product takes the caller from the verified token.`}</p>
         <p data-testid="vault-count">{state.vault.count} of {state.limits.entriesPerUser} entries ({state.vault.staged} staged for deletion, still counted until purged). A credential is at most {state.limits.credentialBytes.toLocaleString("en-US")} bytes (64 KB).</p>
