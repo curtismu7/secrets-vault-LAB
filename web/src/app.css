@@ -31,7 +31,10 @@ input[type="checkbox"] { width: 20px; height: 20px; min-height: 0; accent-color:
 textarea { width: 100%; display: block; font-family: var(--font-mono); font-size: 13px; margin: 4px 0 8px; }
 .stack { display: grid; gap: 12px; min-width: 0; }
 .stack > * { min-width: 0; }
-.cols { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)); align-items: start; }
+.cols { display: grid; gap: 12px; grid-template-columns: 1fr 1fr; align-items: start; }
+@media (max-width: 900px) { .cols { grid-template-columns: 1fr; } }
+.step-num { display: inline-grid; place-items: center; min-width: 1.4rem; height: 1.4rem; border-radius: 999px;
+  background: var(--accent-gradient); color: var(--on-accent); font: 700 0.75rem var(--font-mono); margin-right: 0.5em; vertical-align: 2px; }
 .cols > * { min-width: 0; }
 .panel { border: 1px solid var(--border); background: var(--surface); border-radius: 10px; padding: 12px 14px; min-width: 0; }
 .panel[data-state="warn"] { border-color: var(--status-warn); }
@@ -63,7 +66,7 @@ textarea { width: 100%; display: block; font-family: var(--font-mono); font-size
 .tbl td[data-state="ok"] { border-left: 4px solid var(--status-ok); }
 .tbl td[data-state="warn"] { border-left: 4px solid var(--status-warn); }
 .tbl td[data-state="none"] { border-left: 4px solid var(--danger-text); }
-.filters { display: grid; gap: 8px 12px; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); align-items: end; margin: 8px 0; }
+.filters { display: grid; gap: 8px 12px; grid-template-columns: 1fr 1fr; align-items: end; margin: 8px 0; }
 .filters > * { min-width: 0; }
 .filters select, .filters input { width: 100%; }
 .qualifier { margin: 6px 0 0; color: var(--text); }
