@@ -5,6 +5,7 @@ import { perform, KEYS } from './actions.js';
 import { cleanFree } from './credentials.js';
 import { newTrace, formatTraceparent } from './trace.js';
 import { buildRoster } from './cast.js';
+import { mark, observeAction, safely } from './runObs.js';
 
 const isObj = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
 const SECRET_KEYS = new Set(['secret', 'fields', 'value', 'values']);
@@ -51,7 +52,8 @@ export const onRoster = (cast, actorId) => typeof actorId === 'string' && buildR
 
 // Runs one engine action for a workspace with a trace. Returns { outcome, hops, traceparent, state }, or null when the workspace cap refuses a new workspace.
 // A caller who is not on the roster gets a 401 outcome with NO state and NO workspace (a refusal for an unidentified caller carries no one's vault).
-export function runAction({ ws, workspaces, vertical, cast, op, actorId, params, traceparent, route }) {
+// `observe` (optional) is handed the events of the action (rule 27, runObs.js); a recorder that throws is reported on stderr and never changes the answer.
+export function runAction({ ws, workspaces, vertical, cast, op, actorId, params, traceparent, route, observe }) {
   const known = onRoster(cast, actorId);
   const e = known ? workspaces.engine(ws, vertical, cast) : null;
   if (known && !e) return null;
@@ -60,7 +62,9 @@ export function runAction({ ws, workspaces, vertical, cast, op, actorId, params,
   const root = t.span();
   let outcome;
   if (e) { e.trace = { traceId: t.traceId, span: t.span }; e.hops = []; e.hopsTruncated = false; }
+  const before = e && observe ? safely('mark', () => mark(e)) : undefined;
   try { outcome = actor ? perform(e, op, actor, params) : { ok: false, status: 401, code: 'unknown_actor', detail: 'the caller is not on the lab roster' }; } finally { if (e) e.trace = null; }
+  if (before) safely('live-decisions', () => observe(observeAction(e, { outcome, before })));
   const first = { n: 1, label: 'browser to the lab API', request: { method: route.method, url: route.url, headers: { traceparent: formatTraceparent(t.traceId, root), 'x-workspace': ws, 'x-lab-actor': actor ? actor.id : 'unknown' }, body: scrub(params) }, response: { status: outcome.ok ? 200 : outcome.status, body: outcome.ok ? { ok: true } : { error: outcome.code } } };
   const hops = [first, ...(e ? e.hops : []).map((h, i) => ({ ...h, n: i + 2 }))];
   const truncated = e ? e.hopsTruncated : false; if (e) e.hops = [];

@@ -87,13 +87,32 @@ If the port is taken:
 
 ## Mock and live modes
 
-The toggle in the header switches between them on every page, and the banner shows the same mode. **Mock** reads the generated tables (recorded as one person per scenario; the "Acting as" list shows that person and is off) and refuses every write with 409. **Live** drives the real local engine on your own actions as the person you pick; the lab clock, the key provider, the targets, the grants and Reset are live controls. Both are loopback-only with zero outbound network.
+The toggle in the header switches between them on every page, and the banner shows the same mode. **Mock** reads the generated tables (recorded as one person per scenario; the "Acting as" list shows that person and is off) and refuses every write with 409. **Live** drives the real local engine on your own actions as the person you pick; the lab clock, the key provider, the targets, the grants and Reset are live controls. Both are loopback-only with zero outbound network. The toggle's **Real** is Live plus one hop to the Privilege gateway (the Privilege gateway card, see "Real mode" at the end): the vault, the grants and the backend are the lab's own engine in both modes.
 
 ## Health, doctor and reset
 
 - `GET /api/health` returns `demo-health/1` (public, GET only, no detail).
 - `npm run doctor` (or `PORT=7459 npm run doctor` if 7450 is busy) prints one line per check and exits 1 on failure: Node, mode, bind, port range, the settings file, the scripted scenarios, the Mock table against the engine, a real vault cycle (a sealed entry unsealed for a gateway call, the backend logging the real user, an administrator forced into their own empty vault, the no-copy search finding nothing and finding a planted copy), the story tokens in every vertical, the hosts, the response mask, the diagrams, and the netguard self-test.
 - `npm run reset` clears the default workspace of a running lab; the Reset button does the same for your workspace and puts the diagram boxes back.
+
+## Run observability (rule 27)
+
+Under the User Vault, Request-time injection, Secret Stores and Governance tabs, **What each layer logged for this run** shows what a run left behind, with an origin tag on every row and "not logged" where nothing was recorded. It is the family's shared panel (`web/src/run-observability/`, vendored byte for byte with a sha256 pin that `scripts/run-observability.pin.test.mjs` checks; the collector is `server/src/runObservability.js`). It is an **excerpt**: addresses, ids, emails and credential-shaped text are masked, and a credential, a sealed value or a gateway address is never part of a row. The panel follows the toggle: it never shows a record made in the other mode.
+
+| Layer | Mock: the recorded scenario (`simulated`) | Real: the page's gateway check (`response`) |
+|---|---|---|
+| Person | the caller's name, as information: the lab has no sign-in, the person is chosen in the header | not logged: no person signs in, the call is made with an agent access key |
+| Agent | the simulated agent tool's request, as information: it holds no credential and there is no OBO token | not logged: the caller is an agent access key, and the gateway's log of it is not read |
+| Authorize | not logged: this lab does not call PingOne Authorize | not logged |
+| Privilege | the lab's own grant table (not PingOne Privilege): allowed, or refused (default deny; read and write are separate grants); an edit of the table is information | not logged: Privilege's policy log is not read; the grant table stays in the lab's engine in Real too |
+| Agent gateway | the simulated gateway's credential injection, as **information** (an injection is not a decision; the value is never shown), or its refusal of a call (no credential for the target, no fallback to a shared account) | what the lab received from the gateway: `tools/list` (allowed when it returns tools, refused on 401 or 403) and one probe for a tool nothing grants (refused on 401, 403, a JSON-RPC error or `isError`; allowed if the gateway lets it through). Another status, or an answer that cannot be read as a tool result, is information |
+| Resource server | the simulated backend's own log of who actually acted: allowed with the principal (the caller, or the shared service account), or refused | not logged: the tool behind the gateway wrote nothing the lab can read |
+
+- **Time is when the lab recorded it.** Mock rows carry the **lab clock** of the recorded scenario (it starts at 2026-11-02 09:00 UTC and moves only when the scenario moves it), so the steps of one scenario can share a time; their order is kept. Real rows carry the wall-clock time the lab had each reply. Nothing is given an invented spacing.
+- **Where a run leaves logs.** The container's stdout. In Live, each decision the engine makes is one line, written when the action ran: `<iso> secrets-vault-lab decision step=<step> layer=<layer> actor=<name> result=<passed|stopped|unclear|no-reply> cause=<cause> labtime=<lab clock> run=<id>`. In Real, each answer from the gateway is one line with the same shape (no `labtime`), a call that got no reply is `result=no-reply` and has no row. A line never holds a credential, a sealed value or a gateway address, and uses none of the words the family's log matchers read. Mock reads recorded tables: nothing runs, so it writes no line. The audit trail itself (Governance) lives in memory and is gone on a restart or Reset.
+- **Where the logs can stream.** The family log collector (`shared/ping-log-collector`) does not list this container today, so nothing ships these lines until its source list names it; the SIEM time would then be Docker's wall-clock time for the line, and the lab clock stays inside the line as `labtime`. Privilege's own records of the agent key (its gateway log, its SIEM index, the console Activity Logs) are not read by this lab.
+- **Not logged today, and why.** PingOne Authorize has no container log (and this lab does not call it); the PingFederate `audit.log` is not shipped; the gateway's refusal and block line shapes are unconfirmed; the PingOne audit reader does not exist. Real therefore shows only what the lab received, as `response` rows, never as `logged`.
+- **Settings.** None. This lab reads no logs, so it has no `RUN_OBS_*` variable, vendors the core only, and the compose file never mounts the Docker socket (a test pins all three).
 
 ## Docker (optional)
 
@@ -105,7 +124,7 @@ Publishes on `127.0.0.1` only (a test pins it), runs as a non-root user with a r
 
 ## Tests
 
-`npm test` runs the server tests (`node --test test/*.test.js`, a glob), the web tests (vitest against the real Express app) and the repo tests (`node --test scripts/*.test.mjs`). On Node 26: 245 server tests, 54 web tests and 24 repo tests, all passing. Conformance (`node ~/Development/demo-kit-base-rule18-warn/scripts/conformance.mjs . --new`), `check-drift.sh` and `check-css.sh` are run by hand.
+`npm test` runs the server tests (`node --test test/*.test.js`, a glob), the web tests (vitest against the real Express app) and the repo tests (`node --test scripts/*.test.mjs`). On Node 26: 268 server tests, 169 web tests (25 of them the vendored run-observability panel's own) and 30 repo tests, all passing. Conformance (`node ~/Development/demo-kit-base-rule18-warn/scripts/conformance.mjs . --new`), `check-drift.sh` and `check-css.sh` are run by hand.
 
 ## Troubleshooting
 

@@ -127,4 +127,5 @@ label.check { justify-content: flex-start; }
 .tbl--xwide { min-width: 880px; }
 .tbl--xwide td:first-child { overflow-wrap: break-word; word-break: normal; min-width: 220px; }
 .pat-scroll { overflow-x: auto; max-width: 100%; }
-
+/* The run-observability panel (rule 27) sits under the tab content with the same gap the panels have. */
+.obs { margin: 16px 0 0; }
