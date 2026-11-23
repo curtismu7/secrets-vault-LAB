@@ -117,22 +117,28 @@ export function createApp({ health = createHealth(), configFile = CONFIG, worksp
 
   // The record of one run (rule 27). Mock: the recorded scenario's events. Real: what the lab received on a gateway check (the newest, or ?runId=). A run is only
   // ever returned in the mode it was made in: the route follows the server's current mode, and a Real run is never built from a Mock table or the other way round.
+  // The server's mode is mock or real (the toggle), or live: the config default (SVL_LAB_MODE=live) before the toggle is used. In live no gateway check can run
+  // (it answers 409 mock_mode), so there is no Real run, and the answer says so without Real wording.
   on('get', '/run-observability', async (req, res) => {
     noStore(res);
     const q = req.query;
     if (!Object.keys(q).every((k) => ['vertical', 'scenario', 'runId'].includes(k))) return res.status(400).json({ error: 'unknown_field', message: 'the query carries a parameter the lab does not take' });
     try {
-      if (currentSource() === 'mock') {
+      const source = currentSource();
+      if (source === 'real') {
+        if (q.runId !== undefined && typeof q.runId !== 'string') return res.status(400).json({ error: 'bad_run_id', message: 'runId must be one id' });
+        const run = runLog.get(q.runId);
+        if (!run) return res.json({ record: null, message: q.runId === undefined ? 'No gateway check has run in Real yet: nothing was received from the gateway, so there is nothing to show.' : 'That gateway check is no longer kept (the lab keeps the last few).' });
+        return res.json({ record: await realRecord(run) });
+      }
+      if (source === 'mock') {
         if (!verticalOk(req, res)) return undefined;
         const vertical = verticalOf(req);
         const sc = q.scenario;
         if (sc !== undefined && (typeof sc !== 'string' || !table.verticals[vertical].scenarios.some((s) => s.id === sc))) return res.status(404).json({ error: 'unknown_scenario', message: 'there is no such scenario in this pack' });
         return res.json({ record: await mockRecord(table, vertical, sc) });
       }
-      if (q.runId !== undefined && typeof q.runId !== 'string') return res.status(400).json({ error: 'bad_run_id', message: 'runId must be one id' });
-      const run = runLog.get(q.runId);
-      if (!run) return res.json({ record: null, message: q.runId === undefined ? 'No gateway check has run in Real yet: nothing was received from the gateway, so there is nothing to show.' : 'That gateway check is no longer kept (the lab keeps the last few).' });
-      return res.json({ record: await realRecord(run) });
+      return res.json({ record: null, message: 'The lab opened in Live (SVL_LAB_MODE=live) and the Mode toggle has not been used, so no gateway call was made and there is no run to show. Choose Mock or Real with the Mode toggle.' });
     } catch (err) {
       if (err instanceof RunObsError) return res.status(err.status).json({ error: err.code, message: err.message });
       reportFailure('record', err);

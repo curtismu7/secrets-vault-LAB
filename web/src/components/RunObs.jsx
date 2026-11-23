@@ -6,7 +6,7 @@ import { useEffect, useState } from "react";
 import RunObservability from "../run-observability/RunObservability.jsx";
 
 // Where this lab's run leaves logs and where they can stream (the README says the same).
-export const RUN_OBS_STREAMS = [
+export const LOG_STREAMS = [
   { product: "Secrets Vault LAB (this lab's container)", lives: "its stdout. In Live, one line per decision the engine makes (the grant table's allow or refusal, the gateway's injection, the backend's log of who acted) and one per answer received from the Privilege gateway in Real: the caller's name, a step, a result and a run id, never a credential, a sealed value or a gateway address. Mock reads recorded tables and writes none", streams: "nowhere today: the family log collector's source list does not name this container, so it would need an entry first. The SIEM time would then be Docker's wall-clock time for the line; the lab clock stays inside the line as labtime" },
   { product: "Privilege agent gateway (Real)", lives: "its own log (a log volume for a local gateway; the SIEM index for the hosted one)", streams: "the Privilege SIEM export. This lab does not read it, so the Real record holds only what the lab received" },
 ];
@@ -22,7 +22,7 @@ const Note = ({ testId, role, children }) => (
 );
 
 const NOTE = {
-  mock: "Times are the lab clock: it starts at 2026-11-02 09:00 UTC and moves only when the scenario moves it, so the steps of one scenario can share a time (their order is kept). These are recorded decisions of the lab's own engine, not read from any product log. Person is a name chosen in the header: the lab has no sign-in. Agent is a simulated agent tool: there is no OBO token. Privilege holds the lab's own grant table, not PingOne Privilege. Agent gateway is the lab's simulated gateway: it injects the caller's own credential, which is information, not a decision, and the value is never shown. Resource server is the simulated backend's own log of who acted.",
+  mock: "Times are the lab clock: it starts at 2026-11-02 09:00 UTC and moves only when the scenario moves it, so the steps of one scenario can share a time (their order is kept). These are recorded decisions of the lab's own engine, not read from any product log. Person is a name chosen in the header: the lab has no sign-in. Agent is a simulated agent tool: there is no OBO token. Privilege holds the lab's own grant table, not PingOne Privilege. Agent gateway is the lab's simulated gateway: it injects the caller's own credential, which is information, not a decision, and the value is never shown. Resource server is the simulated backend's own log of who acted. The lab's own audit trail (Governance) can hold a refused entry for a step the scenario list shows as refused (another person's vault entry, an unsupported store operation): this panel shows only the gateway calls and the grant table's decisions.",
   real: "Real is only the hop to the Privilege gateway: each row is a reply the lab received, not a log line. The vault, the grant table and the backend stay in the lab's own engine in Real too, so their decisions are on the Governance tab, not here. No person signs in for this call and there is no OBO token: the caller is an agent access key. The key and the gateway address are never part of a row.",
 };
 
@@ -64,7 +64,7 @@ export default function RunObs({ source, vertical, scenarioId, check }) {
   if (answer.record === null) return <Note testId="ro-no-run">{answer.message || "There is no run to show."}</Note>;
   return (
     <div className="obs">
-      <RunObservability record={answer.record} source={source} streams={RUN_OBS_STREAMS} />
+      <RunObservability record={answer.record} source={source} streams={LOG_STREAMS} />
       <p className="ro-muted" data-testid="ro-lab-note">{NOTE[real ? "real" : "mock"]}</p>
     </div>
   );

@@ -50,3 +50,14 @@ test('compose, the example settings and the Dockerfile never mount the Docker so
     assert.ok(!/RUN_OBS_/.test(read(f)), `${f}: no reader settings`);
   }
 });
+
+test('no lab file outside the vendored files carries the RUN_OBS_ prefix (the web code included), and the README says what is not verified', () => {
+  const walk = (dir) => fs.readdirSync(dir, { withFileTypes: true }).flatMap((d) => (d.isDirectory() ? (d.name === 'node_modules' || d.name === 'run-observability' ? [] : walk(path.join(dir, d.name))) : [path.join(dir, d.name)]));
+  for (const f of [...walk(path.join(root, 'web/src')), ...walk(path.join(root, 'server/src')).filter((x) => !x.endsWith('runObservability.js'))]) {
+    assert.ok(!/RUN_OBS_/.test(fs.readFileSync(f, 'utf8')), `${path.relative(root, f)} carries a RUN_OBS_ name`);
+  }
+  const readme = read('README.md');
+  assert.match(readme, /\*\*Not verified\.\*\* Nothing here was run against a real gateway/);
+  assert.match(readme, /exact words could, in rare cases, be read this way\. It is never shown as allowed/);
+  assert.match(readme, /audit trail \(Governance\) can hold a refused entry for a step the scenario list shows as refused/);
+});

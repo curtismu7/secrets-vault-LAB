@@ -17,7 +17,7 @@
 // so steps and causes come from the tables below and use none of them. A line never holds a credential, a sealed value or a gateway URL: it carries
 // roster names, step words and ids the lab wrote. A test runs every line kind through the shared classify() for every product.
 import crypto from 'node:crypto';
-import { createMasker, createRunObservability, keepPattern, LAYERS } from './runObservability.js';
+import { createMasker, createRunObservability, LAYERS } from './runObservability.js';
 
 export const SERVICE = 'secrets-vault-lab';
 export const KEEP_RUNS = 5; // Real runs kept (complete ones only: a run is stored when it ends, so the open run is never evicted)
@@ -26,12 +26,15 @@ export const KEEP_RUNS = 5; // Real runs kept (complete ones only: a run is stor
 export const lineValue = (v, n = 64) => String(v ?? '').replace(/[^A-Za-z0-9._:/@-]+/g, '_').slice(0, n) || '-';
 // The panel masks emails, addresses and ids in every row, so the stdout line masks them too (then keeps only safe characters).
 const { mask } = createMasker();
-const field = (v, keep = null) => lineValue(mask(String(v ?? ''), keep));
-const RESULT = { allowed: 'passed', refused: 'stopped', blocked: 'stopped', info: 'unclear' };
+const field = (v) => lineValue(mask(String(v ?? '')));
+// The lab's outcomes are allowed, refused and info: it has no `blocked` (its own stop). A grant refusal and a call the gateway turns away are `refused`, like the
+// audit trail's own words; `unknown_field` (a field the lab does not take, an owner included) is request validation, not a security stop, so it is `refused` too.
+const RESULT = { allowed: 'passed', refused: 'stopped', info: 'unclear' };
 
-// A recorder that throws must never break the run or the audit: the failure goes to stderr (a code and a short sanitised message) and the run goes on.
+// A recorder that throws must never break the run or the audit: the failure goes to stderr and the run goes on. Only a code (or the error's name) and a fixed
+// text are written: the error's own text could carry anything (the masker does not know the shape of the agent key), so it is never logged.
 export function reportFailure(where, err) {
-  process.stderr.write(`[${SERVICE}] run observability: ${lineValue(where, 40)} ${lineValue(err?.code || err?.name || 'error', 40)} ${mask(String(err?.message ?? '')).replace(/\s+/g, ' ').slice(0, 120)}\n`);
+  process.stderr.write(`[${SERVICE}] run observability: ${lineValue(where, 40)} ${lineValue(err?.code || err?.name || 'error', 40)} (the error's text is not logged)\n`);
 }
 export function safely(where, fn) {
   try { return fn(); } catch (err) { reportFailure(where, err); return undefined; }
@@ -126,9 +129,9 @@ export function observeAction(e, { outcome, before }) {
 export const tableEvent = (ev, seq) => ({ seq, at: ev.at, layer: ev.layer, product: ev.product, outcome: ev.outcome, message: ev.message, detail: ev.detail });
 
 // ---- Stdout lines ---------------------------------------------------------------------------------------------------------------------------
-export function decisionLine(ev, at, runId, keep = null) {
+export function decisionLine(ev, at, runId) {
   const result = ev.noReply ? 'no-reply' : RESULT[ev.outcome];
-  return `${at} ${SERVICE} decision step=${lineValue(ev.step)} layer=${lineValue(ev.layer, 12)} actor=${field(ev.who, keep)} result=${result} cause=${lineValue(ev.cause)}${ev.labtime ? ` labtime=${lineValue(ev.labtime, 30)}` : ''} run=${lineValue(runId)}`;
+  return `${at} ${SERVICE} decision step=${lineValue(ev.step)} layer=${lineValue(ev.layer, 12)} actor=${field(ev.who)} result=${result} cause=${lineValue(ev.cause)}${ev.labtime ? ` labtime=${lineValue(ev.labtime, 30)}` : ''} run=${lineValue(runId)}`;
 }
 
 // ---- What the lab receives from the Privilege gateway (Real) ----------------------------------------------------------------------------------
@@ -139,6 +142,8 @@ const STEP_TEXT = { 'tools/list': 'tools/list', probe: 'the refusal probe (a too
 
 // One call's answer -> an event, or null when there was no reply (a call that did not connect or timed out). Only the answer in hand is read: nothing
 // from an earlier call. The gateway's own words are never copied into a row (they are on the page's gateway card, scrubbed of keys).
+// A call the lab completed names its step. A call that failed does not: the shared client does not say which of its requests (the opening handshake or the
+// call itself) got the status or the JSON-RPC error, so the row says "while the lab was opening or making" the call and `detail.during` names the call.
 export function replyOf(step, r) {
   if (!r || typeof r !== 'object') return null;
   const what = STEP_TEXT[step];
@@ -157,13 +162,15 @@ export function replyOf(step, r) {
   }
   const f = r.refusal && typeof r.refusal === 'object' ? r.refusal : {};
   const status = Number.isInteger(f.status) ? f.status : null;
-  if (status === 401) return done('refused', 'status-401', `The gateway answered ${what} with HTTP 401: it did not accept the agent key.`, { status, ms: r.ms });
-  if (status === 403) return done('refused', 'status-403', `The gateway answered ${what} with HTTP 403${step === 'probe' ? ', which is what the probe expects' : ''}.`, { status, ms: r.ms });
-  if (status !== null) return done('info', `status-${status}`, `The gateway answered ${what} with HTTP ${status}. That status is not a policy verdict, so it is counted as information.`, { status, ms: r.ms });
+  const opening = `while the lab was opening or making ${what}`;
+  const failed = (outcome, cause, message, detail) => ({ outcome, cause, message: `${message} ${RECEIVED}`, detail: { during: step, ...detail } });
+  if (status === 401) return failed('refused', 'status-401', `The gateway answered HTTP 401 ${opening}: it did not accept the agent key.`, { status, ms: r.ms });
+  if (status === 403) return failed('refused', 'status-403', `The gateway answered HTTP 403 ${opening}${step === 'probe' ? '. For a tool nothing grants, that is the answer the probe expects if it came from the call itself' : ''}.`, { status, ms: r.ms });
+  if (status !== null) return failed('info', `status-${status}`, `The gateway answered HTTP ${status} ${opening}. That status is not a policy verdict, so it is counted as information.`, { status, ms: r.ms });
   const text = String(f.message ?? '');
   if (NO_REPLY.test(text)) return null;
-  if (UNREAD.test(text)) return done('info', 'unreadable', `The gateway's answer to ${what} could not be read as a tool result, so it is counted as information.`, { ms: r.ms });
-  return done('refused', 'jsonrpc-error', `The gateway answered ${what} with a JSON-RPC error inside a successful HTTP reply: the lab reads that as a refusal.`, { ms: r.ms });
+  if (UNREAD.test(text)) return failed('info', 'unreadable', `The lab could not read the gateway's answer ${opening} as a tool result, so it is counted as information.`, { ms: r.ms });
+  return failed('refused', 'jsonrpc-error', `The gateway answered ${opening} with a JSON-RPC error inside a successful HTTP reply: the lab reads that as a refusal.`, { ms: r.ms });
 }
 
 // ---- The run log ------------------------------------------------------------------------------------------------------------------------------
@@ -179,25 +186,26 @@ export function createRunLog({ write = (line) => process.stdout.write(`${line}\n
     live(events) {
       if (!events.length) return;
       const id = `act-${part}-${++made}`;
-      for (const ev of events) write(decisionLine({ ...ev, labtime: ev.at }, stamp(), id));
+      // one line at a time: a write that throws drops that line only, never the rest of the action's lines
+      for (const ev of events) safely('live-line', () => write(decisionLine({ ...ev, labtime: ev.at }, stamp(), id)));
     },
     // One gateway check. reply() stamps the moment the lab had the answer, writes its line and keeps the event; end() stores the run.
     beginCheck(caller) {
       const run = { id: `gw-${part}-${++made}`, source: 'real', caller, startedAt: stamp(), endedAt: null, events: [], notes: [] };
-      const keep = keepPattern({ actClientId: caller });
       return {
         id: run.id,
         reply(step, result) {
           const at = stamp();
           const r = replyOf(step, result);
           if (!r) {
-            run.notes.push(`The ${step === 'probe' ? 'refusal probe' : 'tools/list call'} got no reply (it did not connect, or it timed out), so it has no row.`);
-            write(decisionLine({ step: step === 'probe' ? 'gateway-probe' : 'gateway-list', layer: 'gateway', who: caller, noReply: true, cause: 'no-reply' }, at, run.id, keep));
+            // The shared client's "unreachable" and "timed out" words are the only sign of no connection, so a gateway refusal that used those exact words reads the same way.
+            run.notes.push(`The ${step === 'probe' ? 'refusal probe' : 'tools/list call'} got no reply (it did not connect, or it timed out), so it has no row. The lab reads a failure carrying exactly the shared client's "unreachable" or "timed out" words as no connection; a gateway refusal that used those exact words could, in rare cases, be read this way. It is never shown as allowed.`);
+            write(decisionLine({ step: step === 'probe' ? 'gateway-probe' : 'gateway-list', layer: 'gateway', who: caller, noReply: true, cause: 'no-reply' }, at, run.id));
             return;
           }
           const ev = { ...r, at, layer: 'gateway', product: 'Privilege gateway reply', step: step === 'probe' ? 'gateway-probe' : 'gateway-list', who: caller };
           run.events.push(ev);
-          write(decisionLine(ev, at, run.id, keep));
+          write(decisionLine(ev, at, run.id));
         },
         skipped(note) { run.notes.push(note); },
         end() { run.endedAt = stamp(); runs = [...runs, run].slice(-KEEP_RUNS); },
@@ -213,7 +221,7 @@ const WHY_MOCK = {
   person: 'No call was made as a person in this scenario. The lab has no sign-in: a person is only a name chosen in the header.',
   agent: 'The simulated agent made no call in this scenario.',
   authorize: 'This lab does not call PingOne Authorize. The grant table decides, and is shown under Privilege.',
-  privilege: 'No store action reached the grant table in this scenario (the vault is self-service and has no grant check).',
+  privilege: 'No store action reached the grant table in this scenario (the vault is self-service and has no grant check). The lab\'s own audit trail (Governance) can hold a refused entry for a step the scenario list shows as refused, such as a vault action on another person\'s entry or an unsupported store operation: this panel shows only the gateway calls and the grant table\'s decisions.',
   gateway: 'No call went through the simulated gateway in this scenario.',
   resource: 'The simulated backend was not reached in this scenario.',
 };
@@ -250,10 +258,10 @@ export async function mockRecord(table, vertical, scenarioId, { clock = Date.now
 }
 
 // Real: what the lab received from the gateway on one check, as `response` rows. The layers the lab's own engine covers say so.
+// No correlation here either: this lab reads no logs, so there is nothing to match, and a declared id would only shorten a name in the lines and rows.
 export async function realRecord(run, { clock = Date.now } = {}) {
   const rec = await createRunObservability({ clock }).collectRun({
-    runId: run.id, startedAt: run.startedAt, endedAt: run.endedAt ?? run.startedAt, source: 'real',
-    correlation: { actClientId: run.caller },
+    runId: run.id, startedAt: run.startedAt, endedAt: run.endedAt, source: 'real',
     layers: LAYERS.map((layer) => ({
       layer, products: [], reason: layer === 'gateway' ? (run.notes.join(' ') || WHY_REAL.gateway) : WHY_REAL[layer],
       responses: layer === 'gateway' ? run.events.map((e, i) => ({ at: e.at, product: e.product, outcome: e.outcome, message: e.message, detail: { ...e.detail, eventSeq: i } })) : [],

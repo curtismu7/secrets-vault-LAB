@@ -33,6 +33,7 @@ describe("Mock", () => {
     await screen.findByTestId("run-observability");
     expect(screen.getByTestId("ro-basis")).toHaveTextContent(/Simulated/);
     expect(screen.getByTestId("ro-lab-note")).toHaveTextContent(/lab has no sign-in.*simulated agent tool.*lab's own grant table.*injects the caller's own credential.*information, not a decision/s);
+    expect(screen.getByTestId("ro-lab-note")).toHaveTextContent(/audit trail \(Governance\) can hold a refused entry for a step the scenario list shows as refused.*only the gateway calls and the grant table's decisions/s);
     expect(screen.getByTestId("ro-streams")).toHaveTextContent(/Mock reads recorded tables and writes none/);
     expect(screen.queryByText(/Re-read/)).toBeNull();
     // a re-render with the same run (a poll, a state refresh) asks nothing new

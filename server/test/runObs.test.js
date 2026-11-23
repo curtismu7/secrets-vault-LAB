@@ -8,6 +8,7 @@ import { MOCK_TABLE } from '../src/mockTable.js';
 import { runScenario, scenarioList } from '../src/scenarios.js';
 import { assertRunObservability, classify, layerMatchers, createMasker, LAYERS } from '../src/runObservability.js';
 import { createRunLog, decisionLine, KEEP_RUNS, lineValue, mockRecord, realRecord, replyOf } from '../src/runObs.js';
+import { createWorkspaces } from '../src/workspaces.js';
 import { maskDeep } from '../src/mask.js';
 import { C, U1, U2, ADMIN, SUP, get, post, live, withServer } from './helpers.js';
 
@@ -23,7 +24,7 @@ const noMatcherReads = (line) => { for (const product of PRODUCTS) { const at = 
 
 // ---- A fake Privilege gateway on loopback: the MCP calls the lab's client makes, answered by a script ------------------------------------------
 async function fakeGateway() {
-  const g = { script: { list: null, call: null }, seen: [], url: '', port: 0 };
+  const g = { script: { list: null, call: null }, seen: [], url: '', port: 0, initFail: 0, notifyFail: 0, initRpcError: false };
   const json = (res, obj, status = 200, headers = {}) => { res.writeHead(status, { 'content-type': 'application/json', ...headers }); res.end(JSON.stringify(obj)); };
   const server = http.createServer((req, res) => {
     let body = ''; req.on('data', (c) => { body += c; });
@@ -31,6 +32,9 @@ async function fakeGateway() {
       if (req.method === 'DELETE') { res.writeHead(200); return res.end(); }
       let m; try { m = JSON.parse(body); } catch { res.writeHead(400); return res.end(); }
       g.seen.push({ method: m.method, auth: req.headers.authorization });
+      if (m.method === 'initialize' && g.initFail) return json(res, { message: 'handshake refused' }, g.initFail);
+      if (m.method === 'initialize' && g.initRpcError) return json(res, { jsonrpc: '2.0', id: m.id, error: { code: -32000, message: 'no handshake' } });
+      if (m.method === 'notifications/initialized' && g.notifyFail) return json(res, { message: 'handshake refused' }, g.notifyFail);
       if (m.method === 'initialize') return json(res, { jsonrpc: '2.0', id: m.id, result: { protocolVersion: '2025-06-18', serverInfo: { name: 'fake-gateway' }, capabilities: {} } }, 200, { 'mcp-session-id': 's1' });
       if (m.method === 'notifications/initialized') { res.writeHead(202); return res.end(); }
       const step = m.method === 'tools/list' ? g.script.list : g.script.call;
@@ -189,16 +193,19 @@ test('the route answers errors as {error, message} JSON and takes only its own p
 const act = (url, ws, who, route, body) => post(url, route, live(body), who, W(ws));
 async function liveSession(url, ws) {
   const entry = { name: 'Ledger bearer', targetId: C.castT1, shape: 'bearer', generate: true };
-  await act(url, ws, U1, '/api/vault/entries', { entry });
-  await act(url, ws, U1, '/api/gateway/call', { call: { targetId: C.castT1, as: 'per-user', operation: 'read_summary' } });
-  await act(url, ws, U1, '/api/gateway/call', { call: { targetId: C.castT1, as: 'shared', operation: 'read_summary' } });
-  await act(url, ws, U2, '/api/gateway/call', { call: { targetId: C.castT1, as: 'per-user', operation: 'read_summary' } });
-  await act(url, ws, U1, '/api/gateway/call', { call: { targetId: C.castT1, as: 'per-user', operation: 'read_summary', owner: ADMIN } });
-  await act(url, ws, U1, '/api/stores/read', { read: { ref: `aws:${C.castAwsPrefix}/db-admin`, consumer: 'simulated-gateway' } });
-  await act(url, ws, U1, '/api/stores/rotate', { ref: `aws:${C.castAwsPrefix}/db-admin` });
-  await act(url, ws, SUP, '/api/stores/read', { read: { ref: `aws:${C.castAwsPrefix}/db-admin`, consumer: 'simulated-gateway' } });
-  await act(url, ws, ADMIN, '/api/policies', { grant: { principal: SUP, scope: `aws:${C.castAwsPrefix}/**`, actions: ['read'] } });
-  await act(url, ws, ADMIN, '/api/clock', { clock: { minutes: 5 } });
+  const answers = [];
+  const go = async (...a) => { const r = await act(url, ws, ...a); answers.push(r.status); };
+  await go(U1, '/api/vault/entries', { entry });
+  await go(U1, '/api/gateway/call', { call: { targetId: C.castT1, as: 'per-user', operation: 'read_summary' } });
+  await go(U1, '/api/gateway/call', { call: { targetId: C.castT1, as: 'shared', operation: 'read_summary' } });
+  await go(U2, '/api/gateway/call', { call: { targetId: C.castT1, as: 'per-user', operation: 'read_summary' } });
+  await go(U1, '/api/gateway/call', { call: { targetId: C.castT1, as: 'per-user', operation: 'read_summary', owner: ADMIN } });
+  await go(U1, '/api/stores/read', { read: { ref: `aws:${C.castAwsPrefix}/db-admin`, consumer: 'simulated-gateway' } });
+  await go(U1, '/api/stores/rotate', { ref: `aws:${C.castAwsPrefix}/db-admin` });
+  await go(SUP, '/api/stores/read', { read: { ref: `aws:${C.castAwsPrefix}/db-admin`, consumer: 'simulated-gateway' } });
+  await go(ADMIN, '/api/policies', { grant: { principal: SUP, scope: `aws:${C.castAwsPrefix}/**`, actions: ['read'] } });
+  await go(ADMIN, '/api/clock', { clock: { minutes: 5 } });
+  return answers;
 }
 
 test('Live: each decision the engine makes is one stdout line, one run id per action, no word a shared matcher reads, and no shared matcher reads any line', async () => {
@@ -238,7 +245,7 @@ test('hostile values never reach a line or a record: secret-shaped credentials, 
   const bearer = fragments('sk_', 'live_', 'a1B2c3D4e5F6g7H8i9J0k1L2');
   const apiKey = fragments('AKIA', 'ABCDEFGHIJKLMNOP');
   const basic = fragments('hunter', '2xyz-', 'p4ssw0rd');
-  const workspaces = (await import('../src/workspaces.js')).createWorkspaces();
+  const workspaces = createWorkspaces();
   await withServer(async (url) => {
     const ws = 'obs-hostile';
     await act(url, ws, U1, '/api/vault/entries', { entry: { name: 'Ledger bearer', targetId: C.castT1, shape: 'bearer', secret: { token: bearer }, notes: `result=passed\nFAKE decision step=backend ${apiKey}` } });
@@ -314,7 +321,7 @@ test('Real: a gateway check is one stdout line and one `response` row per reply,
     assert.ok(rec.rows.every((r) => r.origin !== 'logged' && r.origin !== 'simulated' && !r.basis && !r.matchedBy));
     assert.deepEqual(rec.coverage, { person: 'not-logged', agent: 'not-logged', authorize: 'not-logged', privilege: 'not-logged', gateway: 'response', resource: 'not-logged' });
     assert.match(rec.reasons.privilege, /stay in the lab's own engine in Real too/);
-    assert.match(rows(rec)[0].message, /2 tools/); assert.match(rows(rec)[1].message, /HTTP 403.*what the probe expects/);
+    assert.match(rows(rec)[0].message, /2 tools/); assert.match(rows(rec)[1].message, /HTTP 403 while the lab was opening or making the refusal probe.*answer the probe expects/s);
     assert.match(rows(rec)[0].message, /reply the lab received, not a gateway log line/);
     // the key and the address of the gateway are nowhere in the record, the lines or the answer's run id
     const everything = JSON.stringify(rec) + lines.join('\n');
@@ -450,9 +457,10 @@ test('a recorder that throws never breaks the run or the audit: the lab answers 
     }, { runLog });
   } finally { process.stderr.write = realWrite; }
   const text = written.join('');
-  assert.match(text, /run observability: live-decisions E_BOOM recorder is broken/);
+  assert.match(text, /run observability: live-decisions E_BOOM \(the error's text is not logged\)/);
   assert.match(text, /run observability: begin-check E_BOOM/);
   assert.match(text, /run observability: record E_BOOM/);
+  assert.ok(!/recorder is broken/.test(text), 'the error text is not on stderr');
 });
 
 test('the lab keeps the key and the gateway address out of the record when a reply carries them in every field it could', async () => {
@@ -477,4 +485,148 @@ test('a Real record is built from the lab\'s own events alone and keeps no word 
   assert.deepEqual(assertRunObservability(rec), []);
   assert.deepEqual(rows(rec).map((r) => r.detail), [{ step: 'tools/list', tools: 1, ms: 5, eventSeq: 0 }]);
   assert.equal(replyOf('probe', null), null); assert.equal(replyOf('probe', 'text'), null);
+});
+
+// ---- Review fixes -----------------------------------------------------------------------------------------------------------------------------
+const stderrOf = async (fn) => {
+  const written = []; const realWrite = process.stderr.write;
+  process.stderr.write = (c, ...rest) => { written.push(String(c)); return typeof rest.at(-1) === 'function' ? rest.at(-1)() : true; };
+  try { await fn(); } finally { process.stderr.write = realWrite; }
+  return written.join('');
+};
+
+test('the route follows the server mode: Mock answers a Mock record, Real answers Real runs, and Live (SVL_LAB_MODE=live, toggle unused) never shows Real wording or a record', async () => {
+  const before = process.env.SVL_LAB_MODE; process.env.SVL_LAB_MODE = 'live';
+  try {
+    await withServer(async (url) => {
+      assert.equal((await (await get(url, '/api/info', null)).json()).source, 'live', 'the server opens in Live');
+      for (const q of ['', '?vertical=finance&scenario=own-vault', '?runId=gw-000000-1']) {
+        const b = await record(url, q);
+        assert.equal(b.record, null, q); assert.ok(!/Real yet|has run in Real|no longer kept/.test(b.message), `no Real wording: ${b.message}`);
+        assert.match(b.message, /opened in Live.*Mode toggle/s);
+      }
+      await toReal(url);
+      assert.match((await record(url)).message, /No gateway check has run in Real yet/);
+      await toMock(url);
+      assert.equal((await record(url)).record.source, 'mock');
+    }, { env: { STANDALONE_ENV: NO_ENV } });
+  } finally { if (before === undefined) delete process.env.SVL_LAB_MODE; else process.env.SVL_LAB_MODE = before; }
+});
+
+test('a refusal that arrives while the lab is opening a call is not worded as the answer to tools/list: the shared client does not say which request got it', async () => {
+  const cases = [
+    { name: 'initialize 403', set: (g) => { g.initFail = 403; }, cause: 'status-403' },
+    { name: 'initialize 401', set: (g) => { g.initFail = 401; }, cause: 'status-401' },
+    { name: 'notifications/initialized 401', set: (g) => { g.notifyFail = 401; }, cause: 'status-401' },
+    { name: 'initialize JSON-RPC error', set: (g) => { g.initRpcError = true; }, cause: 'jsonrpc-error' },
+  ];
+  for (const c of cases) {
+    const lines = [];
+    await withGateway(async (url, gw) => {
+      c.set(gw); gw.script.list = tools(2); gw.script.call = status(403);
+      await toReal(url);
+      const out = await check(url);
+      assert.ok(!gw.seen.some((s) => s.method === 'tools/list'), `${c.name}: tools/list was never sent`);
+      const { record: rec } = await record(url, `?runId=${out.runId}`);
+      const [row] = rows(rec);
+      assert.equal(row.outcome, 'refused', c.name);
+      assert.match(row.message, /while the lab was opening or making tools\/list/, c.name);
+      assert.ok(!/answered tools\/list with/.test(row.message), c.name);
+      assert.notEqual(row.detail.step, 'tools/list', `${c.name}: a step the lab does not know is not claimed`);
+      assert.equal(row.detail.during, 'tools/list');
+      assert.match(lines[0], new RegExp(`cause=${c.cause} `));
+    }, { runLog: createRunLog({ write: (l) => lines.push(l) }) });
+  }
+  // a reply the lab did get to a call it completed still names the call
+  assert.equal(replyOf('tools/list', { ok: true, tools: [{}], ms: 1 }).detail.step, 'tools/list');
+  assert.equal(replyOf('probe', { ok: true, isError: true, text: 'x', ms: 1 }).detail.step, 'probe');
+});
+
+test('a gateway refusal that uses the shared client\'s own "unreachable" or "timed out" words is read as no connection: the layer says so, and it is never shown as allowed', async () => {
+  for (const words of ['MCP HTTP request unreachable (ECONNREFUSED)', 'MCP HTTP request timed out after 15000ms']) {
+    await withGateway(async (url, gw) => {
+      gw.script.list = rpcError(words); gw.script.call = status(403);
+      await toReal(url);
+      const out = await check(url);
+      const { record: rec } = await record(url, `?runId=${out.runId}`);
+      assert.equal(rows(rec).length, 0, 'no row, so nothing shown as allowed');
+      assert.ok(!rec.rows.some((r) => r.outcome === 'allowed'));
+      assert.match(rec.reasons.gateway, /did not connect, or it timed out/);
+      assert.match(rec.reasons.gateway, /exactly the shared client's "unreachable" or "timed out" words as no connection.*could, in rare cases, be read this way.*never shown as allowed/s);
+      assert.deepEqual(assertRunObservability(rec), []);
+    });
+  }
+});
+
+test('the Real record and the stdout line do not depend on a declared caller id: rows are identical for any caller label, and a label that looks like a key is masked, never shortened', async () => {
+  const label = fragments('SK_LIVE_', 'A1B2C3D4E5F6G7H8'); const secretLike = fragments('sk_live_', 'a1b2c3d4e5f6g7h8');
+  const seen = {};
+  for (const [name, key] of [['plain', 'LAB_AGENT'], ['secretLike', label]]) {
+    const lines = [];
+    const gw = await fakeGateway();
+    gw.script.list = tools(2); gw.script.call = status(403);
+    const env = { STANDALONE_ENV: NO_ENV, SVL_GW_URL: gw.url, SVL_GW_APPS: 'door-a', [`SVL_GW_KEY_${key}`]: KEY };
+    try {
+      await withServer(async (url) => {
+        await toReal(url);
+        const out = await check(url);
+        assert.equal(out.listing.ok, true);
+        const { record: rec } = await record(url, `?runId=${out.runId}`);
+        seen[name] = { rec, lines: [...lines] };
+      }, { env, runLog: createRunLog({ write: (l) => lines.push(l) }) });
+    } finally { await gw.close(); }
+  }
+  const strip = (rec) => rec.rows.map(({ id, at, atExact, detail, ...r }) => ({ ...r, detail: { ...detail, ms: 0 } }));
+  assert.deepEqual(strip(seen.plain.rec), strip(seen.secretLike.rec), 'rows do not carry the caller label at all');
+  assert.ok(seen.plain.lines.every((l) => / actor=lab_agent /.test(l)), 'a plain label stays readable (not lab__nt)');
+  for (const l of seen.secretLike.lines) {
+    assert.match(l, / actor=sk__ /, 'a key-shaped label is masked whole');
+    assert.ok(!l.includes(secretLike) && !/sk_l|_ef /.test(l), 'and no part of it is kept');
+  }
+  assert.ok(!JSON.stringify(seen.secretLike.rec).includes(secretLike));
+});
+
+test('the layer reasons and the page say the lab\'s own audit trail can hold a refused entry for a step the scenario shows as refused, and that the panel shows only the gateway calls and grant decisions', async () => {
+  const rec = await mockRecord(MOCK_TABLE, 'finance', 'nightly-resync');
+  assert.match(rec.reasons.privilege, /audit trail \(Governance\) can hold a refused entry for a step the scenario list shows as refused.*only the gateway calls and the grant table's decisions/s);
+  // the two cases the review named: no row for them, and the audit trail does hold a refused entry for each
+  const aws = runScenario(C, scenarioList(C).find((x) => x.id === 'store-lifecycle'));
+  assert.ok(aws.engine.s.audit.some((a) => a.action === 'storeRecover' && a.outcome === 'refused' && a.code === 'unsupported_operation'));
+  const own = runScenario(C, scenarioList(C).find((x) => x.id === 'no-override'));
+  for (const action of ['vaultDelete', 'vaultUpdate', 'vaultRestore']) assert.ok(own.engine.s.audit.some((a) => a.action === action && a.outcome === 'refused' && a.code === 'not_found'), action);
+  assert.ok(!aws.events.some((e) => /to recover aws:/.test(e.message)), 'the AWS recover has no grant-allow row');
+  assert.ok(!own.events.some((e) => /vault(Delete|Update|Restore)/.test(JSON.stringify(e))), 'the refused vault steps have no row');
+});
+
+test('one failed write does not drop the rest of an action\'s lines; the answers and the audit trail are the baseline\'s', async () => {
+  const run = async (write) => {
+    const workspaces = createWorkspaces(); let answers;
+    await withServer(async (url) => { answers = await liveSession(url, 'obs-write'); }, { runLog: createRunLog({ write }), workspaces, env: { STANDALONE_ENV: NO_ENV } });
+    return { answers, audit: JSON.stringify(workspaces.peek('obs-write', 'finance').s.audit) };
+  };
+  const base = []; const baseline = await run((l) => base.push(l));
+  assert.equal(base.length, 16);
+  const got = []; let n = 0;
+  let thrown;
+  const err = await stderrOf(async () => { thrown = await run((l) => { if (++n === 3) throw new Error('disk full'); got.push(l); }); });
+  assert.equal(n, 16, 'every line was still tried');
+  const same = (l) => l.split(' ').slice(1).join(' ').replace(/ run=\S+$/, '');
+  assert.deepEqual(got.map(same), base.filter((_l, i) => i !== 2).map(same), 'all lines but the one that could not be written');
+  assert.deepEqual(thrown.answers, baseline.answers); assert.equal(thrown.audit, baseline.audit);
+  assert.equal([...err.matchAll(/run observability: live-line /g)].length, 1, 'the failure is reported once, on stderr');
+});
+
+test('stderr carries a code and a fixed text, never the error\'s own text: an error that names the agent key or a key-shaped value does not reach it', async () => {
+  const secretLike = fragments('sk_live_', 'a1b2c3d4e5f6g7h8i9j0k1l2');
+  const runLog = { live: () => { throw Object.assign(new Error(`failed for ${KEY} and ${secretLike} at https://gateway.example.invalid`), { code: 'E_KEY' }); }, beginCheck: () => { throw Object.assign(new Error(`key ${KEY}`), { name: 'KeyError' }); }, get: () => null };
+  const err = await stderrOf(async () => {
+    await withGateway(async (url, gw) => {
+      gw.script.list = tools(1); gw.script.call = status(403);
+      assert.equal((await act(url, 'obs-key', U1, '/api/vault/entries', { entry: { name: 'Ledger bearer', targetId: C.castT1, shape: 'bearer', generate: true } })).status, 200);
+      assert.equal((await act(url, 'obs-key', U1, '/api/gateway/call', { call: { targetId: C.castT1, as: 'per-user', operation: 'read_summary' } })).status, 200);
+      await toReal(url); await check(url);
+    }, { runLog });
+  });
+  assert.match(err, /run observability: live-decisions E_KEY /); assert.match(err, /run observability: begin-check KeyError /);
+  assert.ok(!err.includes(KEY) && !err.includes(secretLike) && !/gateway\.example|sk_l/.test(err), err);
 });
