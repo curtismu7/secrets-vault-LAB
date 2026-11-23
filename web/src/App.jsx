@@ -9,6 +9,7 @@ import GovernanceTab from "./components/GovernanceTab";
 import DiagramTab from "./components/DiagramTab";
 import TalkTrack from "./components/TalkTrack";
 import PrivilegeCheck from "./privilege-check/PrivilegeCheck.jsx";
+import RunObs from "./components/RunObs";
 import TalkTrackDialog from "./talk-track/TalkTrackDialog.jsx";
 import LastAction from "./components/LastAction";
 import ClockBar from "./components/ClockBar";
@@ -62,6 +63,8 @@ export default function App() {
   const [theme, setTheme] = useState(initialTheme);
   const [fontStep, setFontStep] = useState(initialFontStep);
   const [infoVersion, setInfoVersion] = useState(null);
+  // Rule 27: where the page's gateway check (the card in Live) is, so the run panel asks for THAT check's record and never shows an older one.
+  const [check, setCheck] = useState({ phase: "checking" });
 
   useEffect(() => { getJson("/api/info").then((i) => setInfoVersion(i.version || null)).catch(() => setInfoVersion(null)); }, []);
 
@@ -88,7 +91,8 @@ export default function App() {
     window.addEventListener("hashchange", on);
     return () => window.removeEventListener("hashchange", on);
   }, []);
-  const applyMode = (m) => { setModeState(m); try { window.localStorage.setItem(MODE_KEY, m); } catch { /* storage blocked */ } };
+  const applyMode = (m) => { setModeState(m); setCheck({ phase: "checking" }); try { window.localStorage.setItem(MODE_KEY, m); } catch { /* storage blocked */ } };
+  const onCheck = useCallback((next) => setCheck(next.phase === "done" ? { phase: "done", runId: next.runId || null } : { phase: next.phase, reason: next.reason }), []);
   // Rule 19: the Mock/Real toggle POSTs the source to the server's runtime mode, then reloads the page's data.
   // A refusal (the 409 body) is data, not an exception; it is shown where the reset note is shown.
   const switchSource = useCallback(async (source) => {
@@ -159,7 +163,12 @@ export default function App() {
       </header>
       <main className="page">
         <p className="banner" role="status" data-state={mode === "live" ? "live" : "mock"} data-testid="banner">{banner}</p>
-        {mode === "live" && <PrivilegeCheck />}
+        {mode === "live" && (
+          // The card starts a check when it opens and on its own button; the panel below waits for it (a click anywhere in the card that is a button counts).
+          <div onClickCapture={(e) => { if (e.target.closest?.("button")) setCheck({ phase: "checking" }); }}>
+            <PrivilegeCheck onResult={onCheck} />
+          </div>
+        )}
         {(error || lab.error) && <p className="app-error" role="alert">Could not load the lab ({error || lab.error}). Is the server running?</p>}
         <p className="sr-only" role="status" aria-live="polite">{resetMsg}</p>
         {!presenter && story && (
@@ -189,6 +198,7 @@ export default function App() {
               {tab === "diagram" && <DiagramTab vertical={vertical} resetSignal={resetSignal} />}
               {tab === "talk" && <TalkTrack talk={story.talkTrack} />}
               {mode === "live" && LIVE_TABS.includes(tab) && <LastAction last={lab.last} />}
+              {LIVE_TABS.includes(tab) && <RunObs source={mode === "live" ? "real" : "mock"} vertical={vertical} scenarioId={lab.scenario?.id} check={check} />}
             </ErrorBoundary>
           )}
         </div>

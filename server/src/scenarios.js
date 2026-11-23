@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto';
 import { Engine } from './engine.js';
 import { VERTICALS } from './cast.js';
 import { perform } from './actions.js';
+import { mark, observeAction, tableEvent } from './runObs.js';
 
 // A deterministic stand-in for crypto.randomBytes, used ONLY to build the tables. Live always uses the real one.
 export function detRand() {
@@ -121,20 +122,24 @@ export const EXPECTED = {
   'nightly-resync': ['ok', 'ok', 'ok', 'ok', 'ok'],
 };
 
+// The events (rule 27) are the ones the engine wrote for each step, taken from its own audit trail as the step ran: stored once here, in the table.
 export function runScenario(cast, sc, rand = detRand()) {
   const e = new Engine(cast, { rand });
+  const events = [];
   const steps = sc.steps.map((st) => {
     const actor = e.roster.get(st.actor);
+    const before = mark(e);
     const r = perform(e, st.op, actor, st.params);
+    for (const ev of observeAction(e, { outcome: r, before })) events.push(tableEvent(ev, events.length + 1));
     return { say: st.say, actor: st.actor, op: st.op, result: r.ok ? { ok: true } : { ok: false, code: r.code, status: r.status } };
   });
-  return { engine: e, steps, state: e.snapshot(e.roster.get(sc.actor)) };
+  return { engine: e, steps, events, state: e.snapshot(e.roster.get(sc.actor)) };
 }
 
 export function buildMockTable() {
   const verticals = {};
   for (const [v, cast] of Object.entries(VERTICALS)) {
-    verticals[v] = { scenarios: scenarioList(cast).map((sc) => { const run = runScenario(cast, sc); return { id: sc.id, title: sc.title, say: sc.say, actor: sc.actor, steps: run.steps, state: run.state }; }) };
+    verticals[v] = { scenarios: scenarioList(cast).map((sc) => { const run = runScenario(cast, sc); return { id: sc.id, title: sc.title, say: sc.say, actor: sc.actor, steps: run.steps, events: run.events, state: run.state }; }) };
   }
   return { schema: 'svl-mock-table/1', generatedFrom: 'the engine, through scripted scenarios', verticals };
 }

@@ -560,3 +560,38 @@ describe("double clicks, the on-demand proof and the administrator-only helpers"
     await tab("Governance"); await waitFor(() => expect(screen.getByTestId("consumer-simulated-gateway")).toHaveTextContent(/no: stale/), T);
   });
 });
+
+describe("Run observability (rule 27)", () => {
+  const asked = () => seen.map((s) => s.url).filter((u) => /\/api\/run-observability/.test(u));
+  it("Mock: the panel under the four working tabs shows the recorded scenario's rows as simulated, follows the scenario, and is absent on the diagram and the talk track", async () => {
+    await mount();
+    expect(await screen.findByTestId("run-observability", {}, T)).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByTestId("ro-table")).toBeInTheDocument(), T);
+    expect(screen.getByTestId("ro-basis")).toHaveTextContent(/Simulated/);
+    expect(screen.getByTestId("ro-coverage-resource")).toHaveTextContent("Simulated"); expect(screen.getByTestId("ro-coverage-authorize")).toHaveTextContent("Not logged");
+    const simulated = () => screen.getByTestId("ro-table").querySelectorAll('tr.ro-row[data-origin="simulated"]').length;
+    expect(simulated()).toBe(12); expect(screen.getByTestId("ro-table").querySelectorAll("tr.ro-row").length).toBe(12 + 2); // two layers (Authorize, Privilege) say why they have no row
+    expect(asked()[0]).toMatch(/vertical=finance&scenario=own-vault/);
+    await click("scn-governed-read");
+    await waitFor(() => expect(asked().at(-1)).toMatch(/scenario=governed-read/), T);
+    await waitFor(() => expect(screen.getByTestId("ro-coverage-privilege")).toHaveTextContent("Simulated"), T);
+    await waitFor(() => expect(simulated()).toBe(7), T);
+    for (const t of ["Governance", "Request-time injection", "Secret Stores"]) { await tab(t); expect(await screen.findByTestId("run-observability", {}, T)).toBeInTheDocument(); }
+    await tab("Diagram"); expect(screen.queryByTestId("run-observability")).toBeNull();
+    await tab("Talk track"); expect(screen.queryByTestId("run-observability")).toBeNull();
+    expect(seen.filter((s) => /POST|PUT/.test(JSON.stringify(s)) && /run-observability/.test(s.url)).length).toBe(0);
+  });
+
+  it("Real with no gateway configured: no gateway call was made, so the panel says so, asks the server for nothing, and Mock brings the record back", async () => {
+    await mount(); await live();
+    await screen.findByTestId("privilege-check", {}, T);
+    expect(await screen.findByTestId("ro-no-run", {}, T)).toHaveTextContent(/No gateway call was made/);
+    expect(screen.queryByTestId("ro-table")).toBeNull();
+    const before = asked().length;
+    await settled();
+    expect(asked().length).toBe(before);
+    await pick("mode-select", "mock");
+    await waitFor(() => expect(screen.getByTestId("banner")).toHaveTextContent(/MOCK mode/), T);
+    await waitFor(() => expect(screen.getByTestId("ro-table")).toBeInTheDocument(), T);
+  });
+});
