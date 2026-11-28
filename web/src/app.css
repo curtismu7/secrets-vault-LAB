@@ -18,7 +18,7 @@ html { font-size: var(--fs, 16px); }
 .shell-nav a[aria-current="page"] { background: var(--accent-gradient); color: var(--on-accent); font-weight: 600; }
 .shell-bar .shell-right { margin-left: auto; } /* TopMenu renders .top-menu.shell-right; its own layout stays */
 @media (max-width: 600px) { .shell-bar { gap: 10px; padding: 10px 16px; } .shell-nav { order: 3; flex-basis: 100%; } }
-/* Page frame (section 3): one centred 1100px column; the simulation banner is its first child. */
+/* Page frame (section 3): one centred 1100px column. */
 .page { max-width: 2200px; margin: 0 auto; padding: 4px 0 32px; }
 .page-head { display: flex; flex-wrap: wrap; gap: 8px 16px; justify-content: space-between; align-items: center; margin: 12px 0 16px; }
 .page-head__intro { margin: 0; max-width: 78ch; color: var(--text-body); font-size: 14px; line-height: 1.5; }

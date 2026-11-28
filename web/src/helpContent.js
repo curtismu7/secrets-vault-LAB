@@ -28,7 +28,7 @@ export const HELP_SECTIONS = [
       "User Vault: store, edit (metadata only — the stored value is kept byte for byte), delete (staged for 24 hours: restore inside the window, purged at exactly 24:00), and Try every other role to watch each other person land in their own empty vault. The key provider panel shows where the AES key comes from (all three options are mocks).",
       "Request-time injection: three panes — what the agent sees (no credential), what the gateway injects (masked values), what the backend logged (the principal who actually acted). With no entry for the target the call is refused and never falls back to a shared account.",
       "Secret Stores: create, read, update, rotate and delete across five providers with their own structure; soft-delete and recover on Azure only. Governance: the grant table (read and write are separate grants, default deny), the audit trail, the re-sync reports, and the no-copy proof computed from the current state (a button runs it in slices when the workspace is too large to search on every read).",
-      "Diagram boxes can be dragged; Reset restores them and clears your workspace. Presenter is the P key (Esc leaves); the banner stays. Vertical packs (finance, health, retail) change every name. Run observability under each tab shows what each layer logged for this run, with an origin tag on every row."
+      "Diagram boxes can be dragged; Reset restores them and clears your workspace. Presenter is the P key (Esc leaves); the claim tag on every tab stays. Vertical packs (finance, health, retail) change every name. Run observability under each tab shows what each layer logged for this run, with an origin tag on every row."
     ]
   }
 ];

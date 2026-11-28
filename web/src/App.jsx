@@ -11,6 +11,7 @@ import TalkTrack from "./components/TalkTrack";
 import PrivilegeCheck from "./privilege-check/PrivilegeCheck.jsx";
 import RunObs from "./components/RunObs";
 import TalkTrackDialog from "./talk-track/TalkTrackDialog.jsx";
+import ModeModal from "./mode-modal/ModeModal.jsx";
 import HelpDialog from "./help-dialog/HelpDialog.jsx";
 import { HELP_SECTIONS } from "./helpContent";
 import LastAction from "./components/LastAction";
@@ -29,9 +30,13 @@ export const TABS = [
   { id: "diagram", label: "Diagram" },
   { id: "talk", label: "Talk track" },
 ];
-// The banner is never blank and never claims one mode before it knows: until the story answers it says both, honestly.
-const TAIL = "Every product claim is a Ping release claim, UNVERIFIED on our tenant (release 2026-11-02). Nothing here calls a real secret manager, key service, gateway, backend or tenant, and every credential is a lab mock.";
-export const BANNER_UNKNOWN = `SIMULATED, MOCK or LIVE mode (loopback only, no outbound network). ${TAIL}`;
+// Real-or-mock modal (shared mode-modal): it replaces the long simulation banner. The lab's own "Live" (a local engine and five mock secret managers,
+// loopback only, still a simulation) maps to the modal's REAL; the line says so. Both lines keep the claim label that the old banner carried on every
+// tab: each tab also keeps its own claim tag (ClaimTag). The modal stays off until the mode is known, so it never claims one before it knows.
+export const MODE_LINES = {
+  mock: "Simulated: tables generated from the lab's own vault and secret-store engine, read-only; no real secret manager, key service, gateway, backend or tenant is touched, and every credential shown or hidden is a lab mock. Every product claim is a Ping release claim, UNVERIFIED on our tenant.",
+  real: "Live, and still a simulation: the lab's own local vault and five mock secret managers act on your requests (real AES-256-GCM, a lab clock you move), loopback only with no outbound network; use lab mock values only. Every product claim is a Ping release claim, UNVERIFIED on our tenant.",
+};
 const PRESENTER_TALK = { vault: ["say-first", "own-vault", "no-override", "encrypted", "safe-editing", "staged-delete", "bounded"], injection: ["request-time", "slide-36"], stores: ["stores"], governance: ["governed", "no-copy", "resync"], diagram: ["why-user-vault", "why-secret-store"] };
 const MODE_KEY = "svl.mode";
 const THEME_KEY = "svl.theme";
@@ -131,7 +136,6 @@ export default function App() {
     setResetMsg(ok ? "Reset: your workspace's vault, secret inventory, grants, audit trail and the lab clock are back to the start, and the diagram is back in place." : "Reset failed on the server; the view was reloaded.");
   }, [lab.reload]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const banner = story && mode ? story.banner[mode] : BANNER_UNKNOWN;
   const ready = story && mode && lab.state;
   const props = { story, mode, vertical, lab };
   const roster = story ? rosterOf(story.cast) : [];
@@ -165,7 +169,6 @@ export default function App() {
         </TopMenu>
       </header>
       <main className="page">
-        <p className="banner" role="status" data-state={mode === "live" ? "live" : "mock"} data-testid="banner">{banner}</p>
         {mode === "live" && (
           // The card starts a check when it opens and on its own button; the panel below waits for it (a click anywhere in the card that is a button counts).
           <div onClickCapture={(e) => { if (e.target.closest?.("button")) setCheck({ phase: "checking" }); }}>
@@ -206,6 +209,7 @@ export default function App() {
           )}
         </div>
       </main>
+      <ModeModal mode={mode === "live" || mode === "real" ? "real" : "mock"} lines={MODE_LINES} suppress={!mode} storageKey="svl-mode" />
       <TalkTrackDialog isOpen={talkOpen} onClose={() => setTalkOpen(false)} talk={story?.talkTrack ?? []} />
       <HelpDialog isOpen={helpOpen} onClose={() => setHelpOpen(false)} sections={HELP_SECTIONS} docsUrl="https://github.com/curtismu7/secrets-vault-LAB#readme" />
     </div>
