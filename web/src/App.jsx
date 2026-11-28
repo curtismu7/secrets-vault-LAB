@@ -11,6 +11,8 @@ import TalkTrack from "./components/TalkTrack";
 import PrivilegeCheck from "./privilege-check/PrivilegeCheck.jsx";
 import RunObs from "./components/RunObs";
 import TalkTrackDialog from "./talk-track/TalkTrackDialog.jsx";
+import HelpDialog from "./help-dialog/HelpDialog.jsx";
+import { HELP_SECTIONS } from "./helpContent";
 import LastAction from "./components/LastAction";
 import ClockBar from "./components/ClockBar";
 import ScenarioBar from "./components/ScenarioBar";
@@ -51,6 +53,7 @@ const rosterOf = (c) => [[c.castUser, "user"], [c.castUser2, "user"], [c.castAdm
 export default function App() {
   const [vertical, setVertical] = useState("finance");
   const [talkOpen, setTalkOpen] = useState(false);
+  const [helpOpen, setHelpOpen] = useState(false);
   const [story, setStory] = useState(null);
   const [mode, setModeState] = useState(null);
   const [scenarioId, setScenarioId] = useState(null);
@@ -153,7 +156,7 @@ export default function App() {
           fontSize={{ value: fontStep, onChange: setFontStep }}
           present={{ active: presenter, onToggle: () => setPresenter((v) => !v), label: "Presenter (P)" }}
           talkTrack={{ active: talkOpen, onToggle: () => setTalkOpen((v) => !v) }}
-          help={{ href: "https://github.com/curtismu7/secrets-vault-LAB#readme" }}
+          help={{ onClick: () => setHelpOpen(true), title: "What this lab is, and what is simulated" }}
           version={infoVersion}
           onReset={reset}
         >
@@ -204,6 +207,7 @@ export default function App() {
         </div>
       </main>
       <TalkTrackDialog isOpen={talkOpen} onClose={() => setTalkOpen(false)} talk={story?.talkTrack ?? []} />
+      <HelpDialog isOpen={helpOpen} onClose={() => setHelpOpen(false)} sections={HELP_SECTIONS} docsUrl="https://github.com/curtismu7/secrets-vault-LAB#readme" />
     </div>
   );
 }
